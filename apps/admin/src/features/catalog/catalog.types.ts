@@ -69,7 +69,7 @@ export interface CountryRecord {
   heroMediaId?: string | null;
   configuration?: {
     features: Array<{ code: string; label: string }>;
-    acceptedTests: string[];
+    acceptedTests: Array<{ code: string; label: string }>;
     intakeMonths: number[];
     postStudyWorkPermitMonths: number | null;
   };

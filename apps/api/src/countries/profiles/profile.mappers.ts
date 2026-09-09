@@ -138,6 +138,11 @@ export interface ProfileStatisticsRecord {
 }
 
 export interface ProfileBundle {
+  /* The Country's own currency. The cost card no longer carries its own copy --
+   * it was a duplicate that could disagree with the Country's identity -- so a
+   * cost profile written since that change has none of its own to publish. */
+  currencyCode?: string | null;
+  currencySymbol?: string | null;
   costProfile: ProfileCostRecord | null;
   workProfile: ProfileWorkRecord | null;
   languageRequirements: ProfileLanguageRecord | null;
@@ -255,8 +260,12 @@ export function publicProfileSummary(bundle: ProfileBundle) {
   const cost =
     bundle.costProfile && verified(bundle.costProfile)
       ? {
-          currencyCode: bundle.costProfile.currencyCode,
-          currencySymbol: bundle.costProfile.currencySymbol,
+          /* Inherit the Country's currency where the profile has none, so the
+           * published figures always carry a unit. */
+          currencyCode:
+            bundle.costProfile.currencyCode ?? bundle.currencyCode ?? null,
+          currencySymbol:
+            bundle.costProfile.currencySymbol ?? bundle.currencySymbol ?? null,
           tuitionMin: decimal(bundle.costProfile.tuitionMin),
           tuitionMax: decimal(bundle.costProfile.tuitionMax),
           tuitionPeriod: bundle.costProfile.tuitionPeriod,

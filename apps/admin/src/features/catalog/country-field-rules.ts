@@ -52,27 +52,30 @@ const integerBetween =
   };
 
 /** Keyed by the `Core` field name so a server error can be routed by field. */
+/**
+ * Country is edited as a CMS record: the name is the only thing an author must
+ * supply, and every other field is checked only once it holds something. These
+ * used to demand a slug, a page heading and a short description up front, which
+ * blocked the save of a country somebody had only just named.
+ */
 export const countryFieldRules: Record<string, FieldRule> = {
   name: all(required("Country name"), maxLength(150, "Country name")),
   slug: all(
-    required("Slug"),
     maxLength(255, "Slug"),
-    (value) =>
+    whenPresent((value) =>
       /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value.trim())
         ? null
         : "Slug must be lowercase letters, numbers and single hyphens, like study-in-malta.",
+    ),
   ),
-  pageHeading: all(required("Page heading"), maxLength(255, "Page heading")),
-  shortDescription: all(
-    required("Short description"),
-    maxLength(1000, "Short description"),
-  ),
-  continentId: required("Continent"),
+  pageHeading: maxLength(255, "Page heading"),
+  shortDescription: maxLength(1000, "Short description"),
+  continentId: () => null,
   externalUid: whenPresent(maxLength(191, "UID")),
   iso2Code: whenPresent((value) =>
     /^[A-Za-z]{2}$/.test(value.trim())
       ? null
-      : "ISO2 must be exactly 2 letters, like MT.",
+      : "ISO must be exactly 2 letters, like MT.",
   ),
   iso3Code: whenPresent((value) =>
     /^[A-Za-z]{3}$/.test(value.trim())

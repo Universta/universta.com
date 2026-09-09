@@ -1,19 +1,9 @@
-export const COUNTRY_FEATURES = [
-  ['BUDGET_FRIENDLY', 'Budget friendly'],
-  ['IELTS_OPTIONAL', 'IELTS optional'],
-  ['HIGH_VISA_SUCCESS', 'High visa success'],
-  ['PR_FRIENDLY', 'PR friendly'],
-  ['TOP_RANKED_UNIVERSITIES', 'Top ranked universities'],
-  ['PART_TIME_ALLOWED', 'Part-time allowed'],
-  ['POST_STUDY_WORK_AVAILABLE', 'Post-study work available'],
-  ['LANGUAGE_WAIVER', 'Language waiver'],
-] as const;
-
-export const COUNTRY_FEATURE_CODES = COUNTRY_FEATURES.map(([code]) => code);
-export type CountryFeatureCode = (typeof COUNTRY_FEATURE_CODES)[number];
-
-export const COUNTRY_TESTS = ['IELTS', 'TOEFL', 'PTE'] as const;
-export type CountryTest = (typeof COUNTRY_TESTS)[number];
+/* The country feature and accepted-English-test lists used to live here as
+ * `as const` arrays, and were the reason adding either one needed a release.
+ * They are rows now -- `country_features` and `country_english_tests`, seeded
+ * from exactly these codes -- and `CountryTaxonomyService` is the only thing
+ * that reads them. Nothing should reintroduce a second copy here.
+ */
 
 export const INTAKE_MONTHS = [
   [1, 'January'],
@@ -29,7 +19,3 @@ export const INTAKE_MONTHS = [
   [11, 'November'],
   [12, 'December'],
 ] as const;
-
-export function countryFeatureLabel(code: string): string {
-  return COUNTRY_FEATURES.find(([value]) => value === code)?.[1] ?? code;
-}

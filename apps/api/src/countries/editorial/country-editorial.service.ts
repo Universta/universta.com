@@ -199,11 +199,17 @@ export function validateEditorialBody(
           'EDITORIAL_BODY_INVALID',
           'Section item contains unsupported fields',
         );
+      /* A card's or a step's description is authored in the WYSIWYG, so it
+       * arrives as HTML and is sanitised below rather than rejected on sight.
+       * The rest of an item -- its label, step number, fact value, CTA text --
+       * is a short identifier that has never carried markup, and still may
+       * not: a tag there is a mistake worth reporting, not content. */
       for (const [key, itemValue] of Object.entries(record)) {
         if (
           typeof itemValue !== 'string' ||
           itemValue.length > 2000 ||
-          /<[^>]*>|javascript:|data:/i.test(itemValue)
+          /javascript:|data:/i.test(itemValue) ||
+          (key !== 'description' && /<[^>]*>/.test(itemValue))
         )
           throw bad('EDITORIAL_BODY_INVALID', `Section item ${key} is invalid`);
         if (
@@ -229,8 +235,9 @@ export function validateEditorialBody(
     type === 'MEDIA' &&
     value.caption !== undefined &&
     (typeof value.caption !== 'string' ||
-      value.caption.length > 1000 ||
-      /<[^>]*>|javascript:|data:/i.test(value.caption))
+      // Authored as rich text now, so markup is content; it is sanitised below.
+      value.caption.length > 2000 ||
+      /javascript:|data:/i.test(value.caption))
   )
     throw bad('EDITORIAL_BODY_INVALID', 'Media caption is invalid');
 }
@@ -250,6 +257,25 @@ function sanitizeEditorialBody(
   }
   if (type === 'CTA' && typeof value.supportingText === 'string') {
     return { ...value, supportingText: sanitizeRichText(value.supportingText) };
+  }
+  if (type === 'MEDIA' && typeof value.caption === 'string') {
+    return { ...value, caption: sanitizeRichText(value.caption) as string };
+  }
+  /* Only the description carries prose; the other item keys were rejected
+   * above if they contained markup at all, so there is nothing to strip. */
+  if (
+    (type === 'CARD_GRID' || type === 'STEPS') &&
+    Array.isArray(value.items)
+  ) {
+    return {
+      ...value,
+      items: value.items.map((item) => {
+        const record = item as Record<string, unknown>;
+        return typeof record.description === 'string'
+          ? { ...record, description: sanitizeRichText(record.description) }
+          : record;
+      }),
+    };
   }
   return value;
 }
@@ -313,7 +339,12 @@ export class CountryEditorialService {
           id: country.id,
           status: 'PUBLISHED',
           deletedAt: null,
-          continent: { status: 'ACTIVE', deletedAt: null },
+          /* Published without a region is a valid state now; the gate is
+           * about not surfacing a country filed under an archived region. */
+          OR: [
+            { continentId: null },
+            { continent: { status: 'ACTIVE', deletedAt: null } },
+          ],
         },
         include: {
           contentSections: {
@@ -380,7 +411,10 @@ export class CountryEditorialService {
     const bodyJson = sanitizeEditorialBody(dto.sectionType, dto.bodyJson);
     validateEditorialBody(dto.sectionType, bodyJson);
     validateEditorialConfiguration(dto.configurationJson);
-    assertSafeCopy([dto.eyebrow, dto.heading, dto.subheading, dto.ctaLabel]);
+    /* Subheading is the section lede -- authored in the WYSIWYG and rendered as
+     * rich text, so it is sanitised like the body rather than refused for
+     * containing a tag. Eyebrow, heading and CTA label stay short plain labels. */
+    assertSafeCopy([dto.eyebrow, dto.heading, dto.ctaLabel]);
     await this.mediaIds([dto.primaryMediaId, dto.secondaryMediaId]);
     const row = await this.prisma.countryContentSection.create({
       data: {
@@ -389,7 +423,8 @@ export class CountryEditorialService {
         sectionType: dto.sectionType,
         eyebrow: trim(dto.eyebrow),
         heading: trim(dto.heading),
-        subheading: trim(dto.subheading),
+        subheading: sanitizeRichText(trim(dto.subheading)) as
+          string | undefined,
         bodyJson: inputJson(bodyJson),
         primaryMediaId: dto.primaryMediaId,
         secondaryMediaId: dto.secondaryMediaId,
@@ -438,7 +473,10 @@ export class CountryEditorialService {
     const bodyJson = sanitizeEditorialBody(dto.sectionType, dto.bodyJson);
     validateEditorialBody(dto.sectionType, bodyJson);
     validateEditorialConfiguration(dto.configurationJson);
-    assertSafeCopy([dto.eyebrow, dto.heading, dto.subheading, dto.ctaLabel]);
+    /* Subheading is the section lede -- authored in the WYSIWYG and rendered as
+     * rich text, so it is sanitised like the body rather than refused for
+     * containing a tag. Eyebrow, heading and CTA label stay short plain labels. */
+    assertSafeCopy([dto.eyebrow, dto.heading, dto.ctaLabel]);
     await this.mediaIds([dto.primaryMediaId, dto.secondaryMediaId]);
     const row = await this.prisma.countryContentSection.update({
       where: { id },
@@ -447,7 +485,8 @@ export class CountryEditorialService {
         sectionType: dto.sectionType,
         eyebrow: trim(dto.eyebrow),
         heading: trim(dto.heading),
-        subheading: trim(dto.subheading),
+        subheading: sanitizeRichText(trim(dto.subheading)) as
+          string | undefined,
         bodyJson: inputJson(bodyJson),
         primaryMediaId: dto.primaryMediaId,
         secondaryMediaId: dto.secondaryMediaId,
@@ -756,16 +795,19 @@ export class CountryEditorialService {
     const userId = actorId(request);
     await this.country(countryId);
     /* The overview is the card's prose and is rendered through the shared
-     * sanitised rich-text policy, exactly like a FAQ answer. Title, slug,
-     * short description and CTA label are short labels and stay plain text. */
-    assertSafeCopy([dto.title, dto.slug, dto.shortDescription, dto.ctaLabel]);
+     * sanitised rich-text policy, exactly like a FAQ answer -- and so is the
+     * short description, which is the card's public blurb. Title, slug and CTA
+     * label are short labels and stay plain text. */
+    assertSafeCopy([dto.title, dto.slug, dto.ctaLabel]);
     await this.mediaIds([dto.iconMediaId, dto.featuredMediaId]);
     const row = await this.prisma.consultantLandingCard.create({
       data: {
         countryId,
         title: dto.title.trim(),
         slug: dto.slug.trim(),
-        shortDescription: dto.shortDescription.trim(),
+        shortDescription: sanitizeRichText(
+          dto.shortDescription.trim(),
+        ) as string,
         overview: sanitizeRichText(trim(dto.overview)) as string | undefined,
         iconMediaId: dto.iconMediaId,
         featuredMediaId: dto.featuredMediaId,
@@ -801,9 +843,10 @@ export class CountryEditorialService {
     const userId = actorId(request);
     const current = await this.cardRecord(countryId, id);
     /* The overview is the card's prose and is rendered through the shared
-     * sanitised rich-text policy, exactly like a FAQ answer. Title, slug,
-     * short description and CTA label are short labels and stay plain text. */
-    assertSafeCopy([dto.title, dto.slug, dto.shortDescription, dto.ctaLabel]);
+     * sanitised rich-text policy, exactly like a FAQ answer -- and so is the
+     * short description, which is the card's public blurb. Title, slug and CTA
+     * label are short labels and stay plain text. */
+    assertSafeCopy([dto.title, dto.slug, dto.ctaLabel]);
     this.version(
       current.updatedAt,
       dto.expectedUpdatedAt,
@@ -815,7 +858,9 @@ export class CountryEditorialService {
       data: {
         title: dto.title.trim(),
         slug: dto.slug.trim(),
-        shortDescription: dto.shortDescription.trim(),
+        shortDescription: sanitizeRichText(
+          dto.shortDescription.trim(),
+        ) as string,
         overview: sanitizeRichText(trim(dto.overview)) as string | undefined,
         iconMediaId: dto.iconMediaId,
         featuredMediaId: dto.featuredMediaId,

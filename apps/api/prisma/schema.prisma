@@ -772,6 +772,41 @@ model SubSubject {
   @@map("sub_subjects")
 }
 
+/// Country features and accepted English tests were hard-coded lists in the API
+/// and a second copy of the same lists in the Admin form, so an operator could
+/// not add one without a release. They are master data now, on the same shape as
+/// CourseLevel: a stable `code` the stored country configuration and the public
+/// filters already match on, plus a label that can be edited.
+///
+/// `isSystem` marks the eight features and three tests that shipped as
+/// constants. They keep working exactly as before and cannot be deleted, which
+/// is also what makes the seed idempotent.
+model CountryFeature {
+  id           String   @id @default(uuid()) @db.Char(36)
+  code         String   @unique @db.VarChar(50)
+  name         String   @unique @db.VarChar(100)
+  status       String   @default("ACTIVE") @db.VarChar(30)
+  displayOrder Int      @default(0) @map("display_order")
+  isSystem     Boolean  @default(false) @map("is_system")
+  createdAt    DateTime @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.DateTime(3)
+
+  @@map("country_features")
+}
+
+model CountryEnglishTest {
+  id           String   @id @default(uuid()) @db.Char(36)
+  code         String   @unique @db.VarChar(50)
+  name         String   @unique @db.VarChar(100)
+  status       String   @default("ACTIVE") @db.VarChar(30)
+  displayOrder Int      @default(0) @map("display_order")
+  isSystem     Boolean  @default(false) @map("is_system")
+  createdAt    DateTime @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.DateTime(3)
+
+  @@map("country_english_tests")
+}
+
 model CourseLevel {
   id             String   @id @default(uuid()) @db.Char(36)
   code           String   @unique @db.VarChar(30)
@@ -811,10 +846,10 @@ model StudyMode {
 /// recreation as Continent did. `deletedKey` works exactly as it does there.
 model Country {
   id               String    @id @default(uuid()) @db.Char(36)
-  continentId      String    @map("continent_id") @db.Char(36)
+  continentId      String?   @map("continent_id") @db.Char(36)
   name             String    @db.VarChar(150)
   shortName        String?   @map("short_name") @db.VarChar(100)
-  pageHeading      String    @map("page_heading") @db.VarChar(255)
+  pageHeading      String?   @map("page_heading") @db.VarChar(255)
   slug             String    @db.VarChar(255)
   externalUid      String?   @unique @map("external_uid") @db.VarChar(191)
   iso2Code         String?   @map("iso2_code") @db.Char(2)
@@ -831,7 +866,7 @@ model Country {
   listingMediaId   String?   @map("listing_media_id") @db.Char(36)
   heroMediaId      String?   @map("hero_media_id") @db.Char(36)
   mapMediaId       String?   @map("map_media_id") @db.Char(36)
-  shortDescription String    @map("short_description") @db.VarChar(1000)
+  shortDescription String?   @map("short_description") @db.VarChar(1000)
   overview         String?   @db.LongText
   featuredLabel    String?   @map("featured_label") @db.VarChar(100)
   tagline          String?   @db.VarChar(500)
@@ -849,7 +884,7 @@ model Country {
   deletedAt        DateTime? @map("deleted_at") @db.DateTime(3)
   deletedKey       String    @default("") @map("deleted_key") @db.Char(36)
 
-  continent            Continent                   @relation(fields: [continentId], references: [id], onDelete: Restrict)
+  continent            Continent?                  @relation(fields: [continentId], references: [id], onDelete: Restrict)
   flagMedia            MediaAsset?                 @relation("CountryFlagMedia", fields: [flagMediaId], references: [id], onDelete: SetNull)
   listingMedia         MediaAsset?                 @relation("CountryListingMedia", fields: [listingMediaId], references: [id], onDelete: SetNull)
   heroMedia            MediaAsset?                 @relation("CountryHeroMedia", fields: [heroMediaId], references: [id], onDelete: SetNull)

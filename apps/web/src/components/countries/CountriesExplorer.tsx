@@ -386,7 +386,7 @@ function SuggestionState({ state, suggestions, active, onHover, onChoose }: { st
         <li key={item.id} id={`suggestion-${item.id}`} role="option" aria-selected={index === active}>
           <button type="button" onMouseEnter={() => onHover(index)} onClick={() => onChoose(item)}>
             {item.name}
-            <span>{item.continent.name}</span>
+            <span>{item.continent?.name ?? "—"}</span>
           </button>
         </li>
       ))}
@@ -421,7 +421,7 @@ function CountryCard({ country }: { country: Country }) {
     <article className="country-card">
       <div className="card-top">
         <span className="country-flag">{country.flag ? <img src={country.flag.url} alt={country.flag.alt || `${country.name} flag`} /> : <span aria-hidden="true">◎</span>}</span>
-        <span className="country-region">{country.continent.name}</span>
+        <span className="country-region">{country.continent?.name ?? "—"}</span>
       </div>
       <h3>{country.name}</h3>
       <p>{country.shortDescription}</p>

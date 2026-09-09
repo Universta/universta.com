@@ -31,10 +31,6 @@ import {
   PATHWAY_STRENGTHS,
   VISA_SUCCESS_BANDS,
 } from '../profiles/profile.constants';
-import {
-  COUNTRY_FEATURE_CODES,
-  COUNTRY_TESTS,
-} from '../country-configuration.constants';
 
 function trimValue({ value }: TransformFnParams): unknown {
   return typeof value === 'string' ? value.trim() : value;
@@ -69,9 +65,12 @@ export class CreateCountryDto {
   @IsString()
   @MaxLength(191)
   externalUid?: string;
-  @ApiProperty({ format: 'uuid' })
+  /* Country is edited as a CMS record: the name is the only thing an author
+   * must supply, and everything else can be filled in later. */
+  @ApiPropertyOptional({ format: 'uuid' })
+  @IsOptional()
   @IsUUID()
-  continentId!: string;
+  continentId?: string;
 
   @ApiProperty({ example: 'Canada' })
   @Transform(trimValue)
@@ -87,17 +86,21 @@ export class CreateCountryDto {
   @Matches(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)
   slug?: string;
 
-  @ApiProperty({ example: 'Study in Canada' })
+  @ApiPropertyOptional({ example: 'Study in Canada' })
   @Transform(trimValue)
+  @IsOptional()
   @IsString()
-  @Length(1, 255)
-  pageHeading!: string;
+  @MaxLength(255)
+  pageHeading?: string;
 
-  @ApiProperty({ example: 'Explore structured study information for Canada.' })
+  @ApiPropertyOptional({
+    example: 'Explore structured study information for Canada.',
+  })
   @Transform(trimValue)
+  @IsOptional()
   @IsString()
-  @Length(1, 1000)
-  shortDescription!: string;
+  @MaxLength(1000)
+  shortDescription?: string;
 
   @ApiPropertyOptional({
     description:
@@ -194,24 +197,34 @@ export class CreateCountryDto {
   @IsUUID('4', { each: true })
   tagIds?: string[];
 
+  /* Both of these used to be closed enums here, which is what made adding a
+   * feature or an English test a code change. They are master data now, so the
+   * shape is checked at the edge and the codes themselves are checked against
+   * the taxonomy rows in the service -- one source of truth, read at the
+   * moment of the write, rather than a list frozen at build time. */
   @ApiPropertyOptional({
-    description: 'Country-level feature codes; not institutional requirements',
-    enum: COUNTRY_FEATURE_CODES,
-    isArray: true,
+    description:
+      'Country-level feature codes from the country feature taxonomy; not institutional requirements',
+    type: [String],
   })
   @Transform(arrayValue)
   @IsOptional()
   @IsArray()
   @ArrayUnique()
-  @IsIn(COUNTRY_FEATURE_CODES, { each: true })
+  @IsString({ each: true })
+  @MaxLength(50, { each: true })
   featureCodes?: string[];
 
-  @ApiPropertyOptional({ enum: COUNTRY_TESTS, isArray: true })
+  @ApiPropertyOptional({
+    description: 'Codes from the accepted English test taxonomy',
+    type: [String],
+  })
   @Transform(arrayValue)
   @IsOptional()
   @IsArray()
   @ArrayUnique()
-  @IsIn(COUNTRY_TESTS, { each: true })
+  @IsString({ each: true })
+  @MaxLength(50, { each: true })
   acceptedTests?: string[];
 
   @ApiPropertyOptional({

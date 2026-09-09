@@ -147,3 +147,66 @@ describe('public country profile policy', () => {
     });
   });
 });
+
+/**
+ * The cost card stopped carrying its own currency code and symbol -- they were
+ * a second copy that could disagree with the Country's identity section. A cost
+ * profile saved since then has none of its own, so without inheritance the
+ * public payload published tuition figures with no unit at all.
+ */
+describe('cost currency inheritance', () => {
+  const costProfile = {
+    currencyCode: null,
+    currencySymbol: null,
+    tuitionMin: '7000',
+    tuitionMax: '12000',
+    tuitionPeriod: 'PER_YEAR',
+    budgetBand: 'MID_RANGE',
+    sourceMode: 'MANUAL',
+    sourceReference: 'https://example.org/cost',
+    verifiedAt: new Date('2026-01-02T00:00:00.000Z'),
+  } as Record<string, unknown>;
+
+  const bundle = (overrides: Record<string, unknown>) =>
+    ({
+      costProfile,
+      workProfile: null,
+      languageRequirements: null,
+      intakes: [],
+      statistics: null,
+      ...overrides,
+    }) as never;
+
+  it('falls back to the Country currency when the profile has none', () => {
+    const result = publicProfileSummary(
+      bundle({ currencyCode: 'EUR', currencySymbol: '€' }),
+    );
+
+    expect(result.cost?.currencyCode).toBe('EUR');
+    expect(result.cost?.currencySymbol).toBe('€');
+  });
+
+  it('keeps a currency the profile does carry', () => {
+    const result = publicProfileSummary(
+      bundle({
+        currencyCode: 'EUR',
+        currencySymbol: '€',
+        costProfile: {
+          ...costProfile,
+          currencyCode: 'GBP',
+          currencySymbol: '£',
+        },
+      }),
+    );
+
+    expect(result.cost?.currencyCode).toBe('GBP');
+    expect(result.cost?.currencySymbol).toBe('£');
+  });
+
+  it('publishes null rather than inventing a currency when neither has one', () => {
+    const result = publicProfileSummary(bundle({}));
+
+    expect(result.cost?.currencyCode).toBeNull();
+    expect(result.cost?.currencySymbol).toBeNull();
+  });
+});

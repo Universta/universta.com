@@ -12,7 +12,7 @@ describe('CountryStructuredSections', () => {
           flag: null,
     listingImage: null,
     heroImage: null, featured: false, displayOrder: 0, statistics: null,
-          configuration: { features: [{ code: 'PART_TIME_ALLOWED', label: 'Part-time allowed' }], acceptedTests: ['IELTS'], intakeMonths: [1, 9], postStudyWorkPermitMonths: 24 },
+          configuration: { features: [{ code: 'PART_TIME_ALLOWED', label: 'Part-time allowed' }], acceptedTests: [{ code: 'IELTS', label: 'IELTS' }], intakeMonths: [1, 9], postStudyWorkPermitMonths: 24 },
           derived: { averageTuition: null, statistics: { universitiesCount: 1, publicUniversitiesCount: 1, coursesCount: 2 }, topRankedUniversities: [], popularUniversities: [], popularCourses: [] },
         }}
       />,

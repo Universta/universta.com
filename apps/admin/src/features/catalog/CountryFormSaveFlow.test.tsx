@@ -20,6 +20,10 @@ const mocks = vi.hoisted(() => ({
   listEditorialMedia: vi.fn(),
   listAllSubjects: vi.fn(),
   listCountryTags: vi.fn(),
+  listCountryFeatures: vi.fn(),
+  listCountryEnglishTests: vi.fn(),
+  createCountryFeature: vi.fn(),
+  createCountryEnglishTest: vi.fn(),
   getCountry: vi.fn(),
   getCountryEditorial: vi.fn(),
   getCountryCurationOptions: vi.fn(),
@@ -88,6 +92,18 @@ function seed(record: typeof draft) {
   const meta = { page: 1, limit: 50, total: 0, totalPages: 0 };
   mocks.listContinents.mockResolvedValue({ data: [record.continent], meta });
   mocks.listEditorialMedia.mockResolvedValue({ data: [], meta });
+  /* Features and accepted English tests are master data the form reads rather
+   * than a list it carries, so the editor cannot load without them. */
+  mocks.listCountryFeatures.mockResolvedValue({
+    data: [
+      { code: 'BUDGET_FRIENDLY', name: 'Budget friendly', status: 'ACTIVE', displayOrder: 1, isSystem: true },
+    ],
+    meta: null,
+  });
+  mocks.listCountryEnglishTests.mockResolvedValue({
+    data: [{ code: 'IELTS', name: 'IELTS', status: 'ACTIVE', displayOrder: 1, isSystem: true }],
+    meta: null,
+  });
   mocks.listAllSubjects.mockResolvedValue([]);
   mocks.listCountryTags.mockResolvedValue({ data: [], meta });
   mocks.getCountry.mockResolvedValue({ data: record });

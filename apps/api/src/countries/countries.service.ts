@@ -30,12 +30,13 @@ import {
 } from './profiles/profile.mappers';
 import { PUBLIC_INTAKE_AVAILABILITY } from './profiles/profile.constants';
 import { CountryDerivedService } from './country-derived.service';
-import {
-  countryFeatureLabel,
-  COUNTRY_FEATURE_CODES,
-  COUNTRY_TESTS,
-} from './country-configuration.constants';
 import { resolveCountryMetadata } from './country-metadata';
+import { sanitizeRichText } from '../common/rich-text';
+import {
+  CountryTaxonomyService,
+  taxonomyLabel,
+  type TaxonomySnapshot,
+} from './country-taxonomy.service';
 
 const COUNTRY_INCLUDE = {
   continent: {
@@ -86,9 +87,9 @@ const COUNTRY_INCLUDE = {
 
 type CountryRecord = {
   id: string;
-  continentId: string;
+  continentId: string | null;
   name: string;
-  pageHeading: string;
+  pageHeading: string | null;
   slug: string;
   iso2Code: string | null;
   iso3Code: string | null;
@@ -105,7 +106,7 @@ type CountryRecord = {
   acceptedTests: Prisma.JsonValue | null;
   intakeMonths: Prisma.JsonValue | null;
   postStudyWorkPermitMonths: number | null;
-  shortDescription: string;
+  shortDescription: string | null;
   overview: string | null;
   tagline: string | null;
   isFeatured: boolean;
@@ -121,7 +122,7 @@ type CountryRecord = {
     slug: string;
     status: string;
     deletedAt: Date | null;
-  };
+  } | null;
   flagMedia: {
     publicUrl: string;
     altText: string | null;
@@ -181,13 +182,13 @@ export interface CountryPublicDto {
   id: string;
   name: string;
   slug: string;
-  pageHeading: string;
-  shortDescription: string;
+  pageHeading: string | null;
+  shortDescription: string | null;
   tagline: string | null;
   overview: string | null;
   capitalCity: string | null;
   officialLanguage: string | null;
-  continent: { id: string; name: string; slug: string };
+  continent: { id: string; name: string; slug: string } | null;
   flag: FlagDto | null;
   listingImage: PublicMediaDto | null;
   heroImage: PublicMediaDto | null;
@@ -197,7 +198,11 @@ export interface CountryPublicDto {
   profiles: ReturnType<typeof publicProfileSummary>;
   configuration: {
     features: Array<{ code: string; label: string }>;
-    acceptedTests: string[];
+    /* Carries the label alongside the code for the same reason `features`
+     * does: the three original tests were their own display names, so the
+     * public page could print the code, but "Duolingo English Test" added by
+     * an Admin has a code that nobody wants to read. */
+    acceptedTests: Array<{ code: string; label: string }>;
     intakeMonths: number[];
     postStudyWorkPermitMonths: number | null;
   };
@@ -311,46 +316,72 @@ export class CountriesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly derived: CountryDerivedService,
+    private readonly taxonomy: CountryTaxonomyService,
   ) {}
 
   /**
    * What the public listing can actually be narrowed by, drawn from the data
    * itself: a Subject nobody has been assigned, or a currency nobody publishes
-   * in, would only be an option that returns nothing. Three grouped queries,
-   * independent of how many destinations exist.
+   * in, would only be an option that returns nothing.
+   *
+   * Features and accepted English tests are read the same way. They are the
+   * two taxonomies an Admin can extend, so this endpoint is what lets a newly
+   * added one reach the public side at all -- it is listed here as soon as a
+   * published destination carries it, with the label the Admin gave it, and
+   * without any front-end release.
    */
   async filterOptions() {
     const published = {
       country: { status: 'PUBLISHED', deletedAt: null },
     } as const;
-    const [subjectRows, intakeRows, currencyRows] = await Promise.all([
-      this.prisma.countrySubject.groupBy({
-        by: ['subjectId'],
-        where: {
-          ...published,
-          subject: { status: 'PUBLISHED', deletedAt: null },
-        },
-        _count: { subjectId: true },
-      }),
-      this.prisma.countryIntake.groupBy({
-        by: ['intakeId'],
-        where: {
-          ...published,
-          availabilityStatus: { in: [...PUBLIC_INTAKE_AVAILABILITY] },
-          intake: { status: 'ACTIVE' },
-        },
-        _count: { intakeId: true },
-      }),
-      this.prisma.countryCostProfile.groupBy({
-        by: ['currencyCode'],
-        where: {
-          ...published,
-          sourceReference: { not: null },
-          verifiedAt: { not: null },
-        },
-        _count: { currencyCode: true },
-      }),
-    ]);
+    const [subjectRows, intakeRows, currencyRows, configured, taxonomy] =
+      await Promise.all([
+        this.prisma.countrySubject.groupBy({
+          by: ['subjectId'],
+          where: {
+            ...published,
+            subject: { status: 'PUBLISHED', deletedAt: null },
+          },
+          _count: { subjectId: true },
+        }),
+        this.prisma.countryIntake.groupBy({
+          by: ['intakeId'],
+          where: {
+            ...published,
+            availabilityStatus: { in: [...PUBLIC_INTAKE_AVAILABILITY] },
+            intake: { status: 'ACTIVE' },
+          },
+          _count: { intakeId: true },
+        }),
+        this.prisma.countryCostProfile.groupBy({
+          by: ['currencyCode'],
+          where: {
+            ...published,
+            sourceReference: { not: null },
+            verifiedAt: { not: null },
+          },
+          _count: { currencyCode: true },
+        }),
+        /* Features and tests are stored as JSON on the country itself, so they
+         * cannot be grouped in SQL. This selects only those four fields across
+         * published destinations -- tens of rows, not a listing page's worth of
+         * includes -- and counts them here. The work and language profiles come
+         * along because a country with none saved still shows the features its
+         * profiles imply, and a count that ignored that would disagree with the
+         * cards the visitor is looking at. */
+        this.prisma.country.findMany({
+          where: { status: 'PUBLISHED', deletedAt: null },
+          select: {
+            featureCodes: true,
+            acceptedTests: true,
+            workProfile: {
+              select: { partTimeAllowed: true, postStudyWorkAvailable: true },
+            },
+            languageRequirements: { select: { languageWaiverAvailable: true } },
+          },
+        }),
+        this.taxonomy.snapshot(),
+      ]);
 
     const [subjects, intakes] = await Promise.all([
       this.prisma.subject.findMany({
@@ -381,6 +412,18 @@ export class CountriesService {
         slug: row.slug,
         count: intakeCounts.get(row.id) ?? 0,
       })),
+      features: this.taxonomyCounts(
+        taxonomy.features,
+        configured.map((row) =>
+          this.featureCodes(row as unknown as CountryRecord, taxonomy),
+        ),
+      ),
+      acceptedTests: this.taxonomyCounts(
+        taxonomy.englishTests,
+        configured.map((row) =>
+          this.stringList(row.acceptedTests, taxonomy.testCodes),
+        ),
+      ),
       /* Amounts are only comparable inside one of these. */
       currencies: currencyRows
         .map((row) => ({
@@ -408,7 +451,7 @@ export class CountriesService {
     if (query.sort === 'universities')
       return this.publicListByUniversities(where, query);
 
-    const [total, countries] = await Promise.all([
+    const [total, countries, taxonomy] = await Promise.all([
       this.prisma.country.count({ where }),
       this.prisma.country.findMany({
         where,
@@ -417,10 +460,12 @@ export class CountriesService {
         skip: (query.page - 1) * query.limit,
         take: query.limit,
       }),
+      /* Read once for the page, not once per destination. */
+      this.taxonomy.snapshot(),
     ]);
     return {
       data: countries.map((country) =>
-        this.toPublic(country as unknown as CountryRecord),
+        this.toPublic(country as unknown as CountryRecord, taxonomy),
       ),
       meta: paginationMeta(query.page, query.limit, total),
     };
@@ -458,11 +503,14 @@ export class CountriesService {
         })
       : [];
     const byId = new Map(countries.map((row) => [row.id, row]));
+    const taxonomy = await this.taxonomy.snapshot();
     return {
       data: pageIds
         .map((id) => byId.get(id))
         .filter((row): row is NonNullable<typeof row> => Boolean(row))
-        .map((country) => this.toPublic(country as unknown as CountryRecord)),
+        .map((country) =>
+          this.toPublic(country as unknown as CountryRecord, taxonomy),
+        ),
       meta: paginationMeta(query.page, query.limit, ordered.length),
     };
   }
@@ -540,7 +588,14 @@ export class CountriesService {
         slug,
         status: 'PUBLISHED',
         deletedAt: null,
-        continent: { status: 'ACTIVE', deletedAt: null },
+        /* A country may be published before it has been filed under a region.
+         * Requiring the relation here hid such a country behind a 404 even
+         * though publishing had succeeded -- the filter is about not showing a
+         * country under an archived region, not about demanding one. */
+        OR: [
+          { continentId: null },
+          { continent: { status: 'ACTIVE', deletedAt: null } },
+        ],
       },
       include: COUNTRY_INCLUDE,
     });
@@ -551,7 +606,7 @@ export class CountriesService {
     const currencySymbol =
       record.currencySymbol ?? metadata?.currencySymbol ?? null;
     return {
-      ...this.toPublic(record),
+      ...this.toPublic(record, await this.taxonomy.snapshot()),
       currency: currencyCode
         ? { code: currencyCode, symbol: currencySymbol }
         : null,
@@ -584,7 +639,7 @@ export class CountriesService {
           }
         : {}),
     };
-    const [total, countries] = await Promise.all([
+    const [total, countries, taxonomy] = await Promise.all([
       this.prisma.country.count({ where }),
       this.prisma.country.findMany({
         where,
@@ -593,10 +648,11 @@ export class CountriesService {
         skip: (query.page - 1) * query.limit,
         take: query.limit,
       }),
+      this.taxonomy.snapshot(),
     ]);
     return {
       data: countries.map((country) =>
-        this.toAdmin(country as unknown as CountryRecord),
+        this.toAdmin(country as unknown as CountryRecord, taxonomy),
       ),
       meta: paginationMeta(query.page, query.limit, total),
     };
@@ -604,16 +660,17 @@ export class CountriesService {
 
   async getAdmin(id: string): Promise<CountryAdminDto> {
     const country = await this.adminRecord(id);
-    const [curation, derived] = await Promise.all([
+    const [curation, derived, taxonomy] = await Promise.all([
       this.derived.curationOptions(country.id),
       this.derived.detail({
         id: country.id,
         currencyCode: country.currencyCode,
         currencySymbol: country.currencySymbol,
       }),
+      this.taxonomy.snapshot(),
     ]);
     return {
-      ...this.toAdmin(country),
+      ...this.toAdmin(country, taxonomy),
       popularUniversityIds: country.popularUniversities
         .map((relation) => relation.universityId)
         .filter((id) =>
@@ -651,6 +708,7 @@ export class CountriesService {
     const iso2Code = dto.iso2Code ?? metadata?.iso2Code;
     const iso3Code = dto.iso3Code ?? metadata?.iso3Code;
     await this.ensureUnique(name, slug, iso2Code, iso3Code);
+    const taxonomy = await this.taxonomy.snapshot();
     try {
       const country = await this.prisma.$transaction(async (tx) => {
         await this.ensureSubjects(dto.subjectIds, tx);
@@ -669,9 +727,14 @@ export class CountriesService {
             currencyCode: dto.currencyCode ?? metadata?.currencyCode,
             currencySymbol: dto.currencySymbol ?? metadata?.currencySymbol,
             tagline: dto.tagline,
-            overview: dto.overview,
-            pageHeading: dto.pageHeading.trim(),
-            shortDescription: dto.shortDescription.trim(),
+            /* Overview and short description are authored in the WYSIWYG and
+             * published as HTML. The editor cleans as a convenience; this is
+             * the boundary, because the route accepts whatever a client sends. */
+            overview: sanitizeRichText(dto.overview) as string | undefined,
+            pageHeading: dto.pageHeading?.trim() || null,
+            shortDescription:
+              (sanitizeRichText(dto.shortDescription?.trim()) as string) ||
+              null,
             isFeatured: dto.isFeatured ?? false,
             displayOrder: dto.displayOrder ?? 0,
             flagMediaId: dto.flagMediaId,
@@ -688,7 +751,7 @@ export class CountriesService {
             tagMaps: dto.tagIds
               ? { create: dto.tagIds.map((tagId) => ({ tagId })) }
               : undefined,
-            ...this.configurationData(dto),
+            ...this.configurationData(dto, taxonomy),
             status: 'DRAFT',
             createdByUserId: userId,
             updatedByUserId: userId,
@@ -748,8 +811,9 @@ export class CountriesService {
       dto.popularUniversityIds,
       dto.popularCourseIds,
     );
+    const taxonomy = await this.taxonomy.snapshot();
     const data: Prisma.CountryUncheckedUpdateInput = {
-      continentId: dto.continentId,
+      continentId: dto.continentId ?? null,
       name,
       slug,
       iso2Code,
@@ -773,9 +837,12 @@ export class CountriesService {
         ? { currencySymbol: dto.currencySymbol }
         : {}),
       ...(dto.tagline !== undefined ? { tagline: dto.tagline } : {}),
-      ...(dto.overview !== undefined ? { overview: dto.overview } : {}),
-      pageHeading: dto.pageHeading.trim(),
-      shortDescription: dto.shortDescription.trim(),
+      ...(dto.overview !== undefined
+        ? { overview: sanitizeRichText(dto.overview) as string }
+        : {}),
+      pageHeading: dto.pageHeading?.trim() || null,
+      shortDescription:
+        (sanitizeRichText(dto.shortDescription?.trim()) as string) || null,
       ...(dto.isFeatured !== undefined ? { isFeatured: dto.isFeatured } : {}),
       ...(dto.displayOrder !== undefined
         ? { displayOrder: dto.displayOrder }
@@ -789,7 +856,7 @@ export class CountriesService {
       ...(dto.heroMediaId !== undefined
         ? { heroMediaId: dto.heroMediaId }
         : {}),
-      ...this.configurationData(dto),
+      ...this.configurationData(dto, taxonomy),
       updatedByUserId: userId,
     };
     try {
@@ -862,7 +929,8 @@ export class CountriesService {
     const userId = actorId(request);
     const current = await this.adminRecord(id);
     this.assertVersion(current.updatedAt, dto.expectedUpdatedAt);
-    if (current.status === 'PUBLISHED') return this.toAdmin(current);
+    if (current.status === 'PUBLISHED')
+      return this.toAdmin(current, await this.taxonomy.snapshot());
     const readiness = this.readiness(current);
     if (readiness.length > 0) {
       throw new UnprocessableEntityException({
@@ -898,7 +966,7 @@ export class CountriesService {
       },
       'Country published',
     );
-    return this.toAdmin(updated);
+    return this.toAdmin(updated, await this.taxonomy.snapshot());
   }
 
   async unpublish(
@@ -910,7 +978,7 @@ export class CountriesService {
     const current = await this.adminRecord(id);
     this.assertVersion(current.updatedAt, dto.expectedUpdatedAt);
     if (current.status === 'DRAFT' && !current.publishedAt)
-      return this.toAdmin(current);
+      return this.toAdmin(current, await this.taxonomy.snapshot());
     const updated = await this.prisma.country.update({
       where: { id },
       data: { status: 'DRAFT', publishedAt: null, updatedByUserId: userId },
@@ -931,7 +999,7 @@ export class CountriesService {
       { status: 'DRAFT', publishedAt: null },
       'Country unpublished',
     );
-    return this.toAdmin(updated);
+    return this.toAdmin(updated, await this.taxonomy.snapshot());
   }
 
   async remove(
@@ -1103,9 +1171,20 @@ export class CountriesService {
     return {
       status: 'PUBLISHED',
       deletedAt: null,
-      continent: query.continent
-        ? { slug: query.continent, status: 'ACTIVE', deletedAt: null }
-        : { status: 'ACTIVE', deletedAt: null },
+      ...(query.continent
+        ? {
+            continent: {
+              slug: query.continent,
+              status: 'ACTIVE',
+              deletedAt: null,
+            },
+          }
+        : {
+            OR: [
+              { continentId: null },
+              { continent: { status: 'ACTIVE', deletedAt: null } },
+            ],
+          }),
       ...(query.featured !== undefined ? { isFeatured: query.featured } : {}),
       ...(query.letter ? { name: { startsWith: query.letter } } : {}),
       ...(query.q
@@ -1269,7 +1348,10 @@ export class CountriesService {
     return record;
   }
 
-  private async ensureContinent(id: string): Promise<void> {
+  /** A country may be saved before anyone has decided which continent it
+   * belongs to; only a continent that was actually named has to resolve. */
+  private async ensureContinent(id: string | undefined): Promise<void> {
+    if (!id) return;
     const continent = await this.prisma.continent.findFirst({
       where: { id, deletedAt: null },
     });
@@ -1379,6 +1461,7 @@ export class CountriesService {
       | 'intakeMonths'
       | 'postStudyWorkPermitMonths'
     >,
+    known: TaxonomySnapshot,
   ): Pick<
     Prisma.CountryUncheckedCreateInput,
     | 'featureCodes'
@@ -1386,16 +1469,18 @@ export class CountriesService {
     | 'intakeMonths'
     | 'postStudyWorkPermitMonths'
   > {
+    /* Both lists are filtered to codes the taxonomy actually knows, which is
+     * what stops a typed or stale code being stored and then rendering as a
+     * chip nothing can explain. The check reads the rows rather than a
+     * constant, so an option an operator added a minute ago is accepted. */
     const features = dto.featureCodes
       ? [...new Set(dto.featureCodes)].filter((code) =>
-          COUNTRY_FEATURE_CODES.includes(
-            code as (typeof COUNTRY_FEATURE_CODES)[number],
-          ),
+          known.featureCodes.has(code),
         )
       : undefined;
     const acceptedTests = dto.acceptedTests
       ? [...new Set(dto.acceptedTests)].filter((test) =>
-          COUNTRY_TESTS.includes(test as (typeof COUNTRY_TESTS)[number]),
+          known.testCodes.has(test),
         )
       : undefined;
     const intakeMonths = dto.intakeMonths
@@ -1429,6 +1514,17 @@ export class CountriesService {
     }
   }
 
+  /**
+   * Publish readiness follows the CMS rule: a country is publishable as soon as
+   * it has a name, because everything else is content an editor fills in over
+   * time. This used to demand ISO codes, a page heading, a short description
+   * and an active continent, which meant a newly named country could be saved
+   * but never published -- the operator hit a wall of field errors for
+   * information they did not have yet.
+   *
+   * The slug stays required because it is the public URL, but the service
+   * derives one from the name, so it is never the author's problem.
+   */
   private readiness(
     record: CountryRecord,
   ): Array<{ field: string; code: string; message: string }> {
@@ -1445,40 +1541,23 @@ export class CountriesService {
         code: 'REQUIRED',
         message: 'Slug is required',
       });
-    if (!record.iso2Code)
-      issues.push({
-        field: 'iso2Code',
-        code: 'REQUIRED',
-        message: 'ISO alpha-2 code is required',
-      });
-    if (!record.iso3Code)
-      issues.push({
-        field: 'iso3Code',
-        code: 'REQUIRED',
-        message: 'ISO alpha-3 code is required',
-      });
-    if (!record.pageHeading.trim())
-      issues.push({
-        field: 'pageHeading',
-        code: 'REQUIRED',
-        message: 'Page heading is required',
-      });
-    if (!record.shortDescription.trim())
-      issues.push({
-        field: 'shortDescription',
-        code: 'REQUIRED',
-        message: 'Short description is required',
-      });
-    if (record.continent.deletedAt || record.continent.status !== 'ACTIVE')
+    /* A continent is optional, but one that was chosen must still be usable --
+     * publishing under an archived region would strand the country in every
+     * public region listing. */
+    if (
+      record.continent &&
+      (record.continent.deletedAt || record.continent.status !== 'ACTIVE')
+    )
       issues.push({
         field: 'continentId',
         code: 'INVALID',
-        message: 'An active continent is required',
+        message: 'The selected continent is no longer active',
       });
     return issues;
   }
 
   private continent(record: CountryRecord) {
+    if (!record.continent) return null;
     return {
       id: record.continent.id,
       name: record.continent.name,
@@ -1509,7 +1588,10 @@ export class CountriesService {
     };
   }
 
-  private toPublic(record: CountryRecord): CountryPublicDto {
+  private toPublic(
+    record: CountryRecord,
+    taxonomy: TaxonomySnapshot,
+  ): CountryPublicDto {
     const verified = isVerifiedStatistics(record.statistics);
     return {
       id: record.id,
@@ -1536,11 +1618,17 @@ export class CountriesService {
         : null,
       profiles: publicProfileSummary(record),
       configuration: {
-        features: this.featureCodes(record).map((code) => ({
+        features: this.featureCodes(record, taxonomy).map((code) => ({
           code,
-          label: countryFeatureLabel(code),
+          label: taxonomyLabel(taxonomy.featureLabels, code),
         })),
-        acceptedTests: this.stringList(record.acceptedTests, COUNTRY_TESTS),
+        acceptedTests: this.stringList(
+          record.acceptedTests,
+          taxonomy.testCodes,
+        ).map((code) => ({
+          code,
+          label: taxonomyLabel(taxonomy.testLabels, code),
+        })),
         intakeMonths: this.monthList(record),
         postStudyWorkPermitMonths:
           record.postStudyWorkPermitMonths ??
@@ -1563,9 +1651,12 @@ export class CountriesService {
     };
   }
 
-  private toAdmin(record: CountryRecord): CountryAdminDto {
+  private toAdmin(
+    record: CountryRecord,
+    taxonomy: TaxonomySnapshot,
+  ): CountryAdminDto {
     return {
-      ...this.toPublic(record),
+      ...this.toPublic(record, taxonomy),
       externalUid: record.externalUid,
       iso2Code: record.iso2Code,
       iso3Code: record.iso3Code,
@@ -1606,8 +1697,11 @@ export class CountriesService {
     };
   }
 
-  private featureCodes(record: CountryRecord): string[] {
-    const saved = this.stringList(record.featureCodes, COUNTRY_FEATURE_CODES);
+  private featureCodes(
+    record: CountryRecord,
+    taxonomy: TaxonomySnapshot,
+  ): string[] {
+    const saved = this.stringList(record.featureCodes, taxonomy.featureCodes);
     if (saved.length) return saved;
     return [
       ...(record.workProfile?.partTimeAllowed ? ['PART_TIME_ALLOWED'] : []),
@@ -1620,14 +1714,34 @@ export class CountriesService {
     ];
   }
 
+  /** One taxonomy's options with how many published destinations carry each.
+   * Options nobody has selected yet are dropped rather than offered as a
+   * filter that returns nothing -- the same rule the Subject list follows. */
+  private taxonomyCounts(
+    options: readonly { code: string; name: string }[],
+    selections: string[][],
+  ): Array<{ code: string; label: string; count: number }> {
+    const counts = new Map<string, number>();
+    for (const codes of selections)
+      for (const code of new Set(codes))
+        counts.set(code, (counts.get(code) ?? 0) + 1);
+    return options
+      .filter((option) => counts.has(option.code))
+      .map((option) => ({
+        code: option.code,
+        label: option.name,
+        count: counts.get(option.code) ?? 0,
+      }));
+  }
+
   private stringList(
     value: Prisma.JsonValue | null,
-    allowed: readonly string[],
+    allowed: ReadonlySet<string>,
   ): string[] {
     return Array.isArray(value)
       ? value.filter(
           (item): item is string =>
-            typeof item === 'string' && allowed.includes(item),
+            typeof item === 'string' && allowed.has(item),
         )
       : [];
   }

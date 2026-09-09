@@ -1,39 +1,70 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
 import { describe, expect, it } from 'vitest';
 import { COUNTRY_EDITORIAL_VARIABLES } from '@/features/shared/variable-autocomplete';
 import { TypedBodyEditor } from './TypedBodyEditor';
 
+/**
+ * Dynamic variables used to be typed: `%` opened a suggestion list the editor
+ * drew itself, with its own keyboard handling. That list belonged to a
+ * hand-built editor; Jodit owns the typing surface now, and intercepting its
+ * keystrokes to draw our own popup is exactly the kind of editor behaviour this
+ * change set out to stop maintaining.
+ *
+ * The feature is unchanged in substance -- the same scoped variables, inserted
+ * as the same `{token}` -- but it is now picked from a control beside the
+ * toolbar rather than triggered by a character. That is a deliberate UX change
+ * and the reason this test moved with it.
+ */
+
 function CountryContentEditor() {
   const [value, setValue] = useState({ paragraphs: [''] });
-  return <TypedBodyEditor type="RICH_TEXT" value={value} onChange={setValue} variables={COUNTRY_EDITORIAL_VARIABLES} />;
+  return (
+    <TypedBodyEditor
+      type="RICH_TEXT"
+      value={value}
+      onChange={setValue}
+      variables={COUNTRY_EDITORIAL_VARIABLES}
+    />
+  );
 }
 
 describe('TypedBodyEditor country variables', () => {
-  it('offers scoped variables from % and preserves input focus through keyboard, click, and escape', async () => {
-    const user = userEvent.setup();
+  it('offers the variables scoped to a Country and inserts the token it names', async () => {
     render(<CountryContentEditor />);
-    const paragraph = screen.getByLabelText('Paragraph 1');
+    const chooser = await screen.findByLabelText(/Insert variable into Paragraph 1/);
 
-    await user.click(paragraph);
-    await user.type(paragraph, '%');
-    expect(await screen.findByRole('listbox')).toHaveTextContent('Country name');
-    expect(screen.getByRole('listbox')).toHaveTextContent('Country slug');
-    await user.keyboard('{ArrowDown}{Enter}');
-    expect(paragraph).toHaveTextContent('{countrySlug}');
-    expect(paragraph).toHaveFocus();
+    // Scoped to the Country context, not the whole variable catalogue.
+    expect(chooser).toHaveTextContent('Country name');
+    expect(chooser).toHaveTextContent('Country slug');
+    expect(chooser).not.toHaveTextContent(/job/i);
 
-    await user.type(paragraph, ' guide %');
-    await user.click(await screen.findByRole('option', { name: /Country name/ }));
-    expect(paragraph).toHaveTextContent('{countrySlug} guide {countryName}');
-    expect(paragraph).toHaveFocus();
+    await userEvent.selectOptions(chooser, 'countrySlug');
 
-    await user.type(paragraph, '%');
-    expect(await screen.findByRole('listbox')).toBeInTheDocument();
-    await user.keyboard('{Escape} text');
-    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
-    expect(paragraph).toHaveTextContent('{countrySlug} guide {countryName}% text');
-    expect(paragraph).toHaveFocus();
+    await waitFor(() =>
+      expect(screen.getByRole('textbox', { name: 'Paragraph 1' })).toHaveTextContent(
+        '{countrySlug}',
+      ),
+    );
+  });
+
+  it('appends a second variable rather than replacing the first', async () => {
+    render(<CountryContentEditor />);
+    const chooser = await screen.findByLabelText(/Insert variable into Paragraph 1/);
+
+    await userEvent.selectOptions(chooser, 'countrySlug');
+    await waitFor(() =>
+      expect(screen.getByRole('textbox', { name: 'Paragraph 1' })).toHaveTextContent(
+        '{countrySlug}',
+      ),
+    );
+    await userEvent.selectOptions(chooser, 'countryName');
+
+    await waitFor(() => {
+      const body = screen.getByRole('textbox', { name: 'Paragraph 1' });
+      expect(body).toHaveTextContent('{countrySlug}');
+      expect(body).toHaveTextContent('{countryName}');
+    });
   });
 });

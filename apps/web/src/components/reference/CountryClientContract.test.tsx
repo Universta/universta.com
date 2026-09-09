@@ -192,13 +192,26 @@ describe('country detail — client contract', () => {
     expect(html).toContain('Explore universities across Australia.');
   });
 
-  it('keeps the short excerpt plain text when pasted markup is supplied', () => {
+  it('renders the short excerpt as authored formatting, never as literal markup', () => {
+    /* The excerpt is a WYSIWYG field now, so its formatting is the point --
+     * what must never happen is tags printing on the page, or unsafe markup
+     * surviving. */
     const hero = render(
       build({ country: { shortDescription: '<p>Hello <strong>students</strong></p><script>alert(1)</script>' } }),
     );
-    expect(hero).toContain('Hello students');
+    expect(hero).toContain('<strong>students</strong>');
     expect(hero).not.toContain('&lt;p&gt;');
+    expect(hero).not.toContain('&lt;strong&gt;');
     expect(hero).not.toContain('alert(1)');
+    expect(hero).not.toContain('<script');
+  });
+
+  it('still renders a legacy plain-text excerpt unchanged', () => {
+    const hero = render(
+      build({ country: { shortDescription: 'Plain excerpt with no markup.' } }),
+    );
+    expect(hero).toContain('Plain excerpt with no markup.');
+    expect(hero).not.toContain('<strong>');
   });
 
   it('omits an empty work and visa section rather than rendering only its disclaimer', () => {

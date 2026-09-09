@@ -19,13 +19,14 @@ export interface Country {
   id: string;
   name: string;
   slug: string;
-  pageHeading: string;
-  shortDescription: string;
+  pageHeading: string | null;
+  shortDescription: string | null;
   overview?: string | null;
   tagline?: string | null;
   capitalCity?: string | null;
   officialLanguage?: string | null;
-  continent: { id: string; name: string; slug: string };
+  /* A country can be published before anyone has assigned it a region. */
+  continent: { id: string; name: string; slug: string } | null;
   flag: Flag | null;
   listingImage: Flag | null;
   heroImage: Flag | null;
@@ -37,7 +38,7 @@ export interface Country {
   subjects?: Array<{ id: string; name: string; slug: string }>;
   configuration?: {
     features: Array<{ code: string; label: string }>;
-    acceptedTests: string[];
+    acceptedTests: Array<{ code: string; label: string }>;
     intakeMonths: number[];
     postStudyWorkPermitMonths: number | null;
   };
@@ -331,6 +332,11 @@ export interface CountryFilterOptions {
   subjects: Array<{ name: string; slug: string; count: number }>;
   intakes: Array<{ name: string; slug: string; count: number }>;
   currencies: Array<{ code: string; count: number }>;
+  /* Both taxonomies are Admin-extensible, so these arrive with their labels
+   * and are not enumerated anywhere on this side: an option added in the
+   * Admin appears here as soon as a published destination carries it. */
+  features: Array<{ code: string; label: string; count: number }>;
+  acceptedTests: Array<{ code: string; label: string; count: number }>;
 }
 /** What the listing can actually be narrowed by, straight from the data. */
 export function getCountryFilterOptions() {

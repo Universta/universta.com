@@ -19,6 +19,7 @@
     "visual:qa:all": "npm run visual:qa -- all"
   },
   "dependencies": {
+    "jodit-react": "^5.5.7",
     "next": "16.2.11",
     "react": "19.2.8",
     "react-dom": "19.2.8",
