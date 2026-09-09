@@ -119,6 +119,30 @@ async function storedFaqs(countryId: string): Promise<Row[]> {
   });
 }
 
+/** Rewrites the country's first FAQ answer through the API.
+ *
+ * The markup this test is about arrived that way -- from the importer and from
+ * earlier releases -- not by being typed. Typing it into the editor is not the
+ * same thing: an editor treats `<p>` as the characters the author pressed and
+ * escapes them, which is correct, so the setup has to go where the real data
+ * came from. */
+async function seedFaqAnswer(countryId: string, faq: Row, answer: string) {
+  return withAdminApi(async (api, headers) => {
+    const response = await api.patch(
+      `/api/v1/admin/countries/${countryId}/faqs/${String(faq.id)}`,
+      {
+        headers,
+        data: {
+          question: faq.question,
+          answer,
+          expectedUpdatedAt: faq.updatedAt,
+        },
+      },
+    );
+    expect(response.ok(), `FAQ PATCH: ${await response.text()}`).toBeTruthy();
+  });
+}
+
 async function putProfile(countryId: string, profile: string, data: Row) {
   return withAdminApi(async (api, headers) => {
     const response = await api.put(
@@ -238,8 +262,12 @@ async function saveCountry(page: Page) {
 
 /** A WYSIWYG field is a contenteditable region, addressed by its accessible
  * name rather than by a form control. */
-function richText(page: Page, label: string) {
-  return page.getByRole('textbox', { name: label });
+/** The rich-text control itself, not the block around it: the editor carries
+ * its own accessible name now, and several of these labels are prefixes of a
+ * plain input beside them ("Visa process" and "Visa processing time"), so the
+ * match has to be exact. */
+function richText(scope: Page | Locator, label: string) {
+  return scope.getByRole('textbox', { name: label, exact: true });
 }
 
 async function openCountry(page: Page): Promise<Row> {
@@ -590,10 +618,23 @@ test.describe.serial('country client contract, end to end', () => {
 
       const write = await api.patch(`/api/v1/admin/countries/${countryId}`, {
         headers,
-        /* The country update is a whole-record write, so the name has to
-         * travel with the mappings even though only the mappings change. */
+        /* The country update is a whole-record write: every identity field
+         * left out of it is cleared, not left alone. Seeding only the mappings
+         * silently wiped the continent, page heading and short description,
+         * and broke every later case in this chain. */
         data: {
           name: country.name,
+          continentId: (country.continent as { id: string } | null)?.id,
+          slug: country.slug,
+          pageHeading: country.pageHeading,
+          shortDescription: country.shortDescription,
+          tagline: country.tagline,
+          iso2Code: country.iso2Code,
+          capitalCity: country.capitalCity,
+          officialLanguage: country.officialLanguage,
+          currencyName: country.currencyName,
+          currencyCode: (country.currency as { code: string } | null)?.code,
+          currencySymbol: (country.currency as { symbol: string } | null)?.symbol,
           subjectIds: nextSubjects,
           tagIds: [String(tag.id)],
           expectedUpdatedAt: country.updatedAt,
@@ -700,7 +741,7 @@ test.describe.serial('country client contract, end to end', () => {
     await field(work, 'Work hours per week').fill('21');
     await field(work, 'Post-study work available').check();
     await field(work, 'Post-study work maximum months').fill('25');
-    await work.getByRole('textbox', { name: 'Visa process' }).fill('Acceptance visa guidance.');
+    await richText(work, 'Visa process').fill('Acceptance visa guidance.');
     await field(work, 'Source reference').fill('https://acceptance.example.invalid/visa');
     await field(work, 'Verified on').fill('2026-01-02');
     await work.getByRole('button', { name: 'Save work and visa' }).click();
@@ -717,7 +758,7 @@ test.describe.serial('country client contract, end to end', () => {
     ).toBeVisible();
     expect((await storedProfiles(countryId)).language?.ieltsMinScore ?? null).not.toBe('10');
     await field(language, 'IELTS minimum score').fill('6.5');
-    await language.getByRole('textbox', { name: 'IELTS notes' }).fill('No band below 6.0.');
+    await richText(language, 'IELTS notes').fill('No band below 6.0.');
     await field(language, 'PTE minimum score').fill('59');
     await field(language, 'Source reference').fill('https://acceptance.example.invalid/lang');
     await field(language, 'Verified on').fill('2026-01-02');
@@ -807,7 +848,10 @@ test.describe.serial('country client contract, end to end', () => {
     expect(first.length).toBeGreaterThan(0);
     expect(first[0].applicationOpeningMonth).toBe(3);
     expect(first[0].isMajor).toBe(true);
-    expect(first[0].notes).toBe('Acceptance intake note.');
+    /* The note is authored in the WYSIWYG, so it is stored as the rich text
+     * the editor produced rather than as the bare sentence typed into it. */
+    expect(String(first[0].notes)).toContain('Acceptance intake note.');
+    expect(String(first[0].notes)).toMatch(/^<p>/);
 
     // Second save: the intake token comes from the intake rows, and this is
     // the path that used to conflict on the very first write.
@@ -818,7 +862,7 @@ test.describe.serial('country client contract, end to end', () => {
     await box(intakes, 'Notes').first().fill('Acceptance intake note, revised.');
     await page.getByRole('button', { name: /^Save intakes$/ }).click();
     await expect(page.getByRole('status')).toContainText('saved', { timeout: 30_000 });
-    expect((await storedProfiles(countryId)).intakes[0].notes).toBe(
+    expect(String((await storedProfiles(countryId)).intakes[0].notes)).toContain(
       'Acceptance intake note, revised.',
     );
   });
@@ -960,7 +1004,9 @@ test.describe.serial('country client contract, end to end', () => {
     await saveCountry(page);
 
     await openCountry(page);
-    await expect(box(page, 'Answer').first()).toHaveValue(FAQ_ANSWER_2);
+    /* The answer is a rich-text control, so it holds text rather than an
+     * input value. */
+    await expect(box(page, 'Answer').first()).toHaveText(FAQ_ANSWER_2);
 
     await page.goto(`${webBaseUrl}/countries/${COUNTRY_SLUG}`);
     await expect(page.locator('body')).toContainText(FAQ_ANSWER_2);
@@ -977,7 +1023,8 @@ test.describe.serial('country client contract, end to end', () => {
     // used to re-send and be rejected for.
     const RICH_ANSWER =
       '<p>Plan for <strong>tuition</strong> and living costs.</p>';
-    await box(page, 'Answer').first().fill(RICH_ANSWER);
+    await seedFaqAnswer(countryId, (await storedFaqs(countryId))[0], RICH_ANSWER);
+    await openCountry(page);
     await saveCountry(page);
     await expect(formIssues(page)).toHaveCount(0);
     expect((await storedFaqs(countryId))[0]?.answer).toBe(RICH_ANSWER);
@@ -1010,11 +1057,13 @@ test.describe.serial('country client contract, end to end', () => {
     // rest of this serial chain expects to find.
     await openCountry(page);
     await field(page, 'Tagline').fill(TAGLINE);
-    await box(page, 'Answer').first().fill('<p>Budget for <em>housing</em>.</p>');
+    /* Typed as prose, because that is what an author does; the editor is what
+     * turns it into the stored paragraph. */
+    await box(page, 'Answer').first().fill('Budget for housing.');
     await saveCountry(page);
     await expect(formIssues(page)).toHaveCount(0);
-    expect((await storedFaqs(countryId))[0].answer).toBe(
-      '<p>Budget for <em>housing</em>.</p>',
+    expect(String((await storedFaqs(countryId))[0].answer)).toContain(
+      'Budget for housing.',
     );
 
     await page.goto(`${webBaseUrl}/countries/${COUNTRY_SLUG}`);
@@ -1271,7 +1320,10 @@ test.describe.serial('country client contract, end to end', () => {
   test('publishes the contract through the public API without leaking admin identity', async ({ page }) => {
     const data = await publicCountry(page);
     expect(data.tagline).toBe(TAGLINE);
-    expect(data.overview).toBe(OVERVIEW);
+    /* Overview is authored in the WYSIWYG, so the public payload carries the
+     * paragraph the editor produced rather than the bare sentence typed in. */
+    expect(String(data.overview)).toContain(OVERVIEW);
+    expect(String(data.overview)).toMatch(/^<p>/);
     expect(data.capitalCity).toBe(CAPITAL);
     expect(data.officialLanguage).toBe(LANGUAGE);
     /* The editor picks a currency from the linked selectors now, so the

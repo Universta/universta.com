@@ -288,7 +288,16 @@ export class CountryProfilesService {
       dto.expectedUpdatedAt,
       'COUNTRY_COST_PROFILE_STALE_VERSION',
     );
-    const data = this.costData(dto);
+    /* The cost card stopped asking for a currency: amounts are published in
+     * the Country's own currency, and a second copy on this profile could only
+     * disagree with it. The column stays, and an importer may still set it
+     * explicitly, but a card saved without one inherits rather than being
+     * refused -- otherwise the editor demands a field it no longer shows. */
+    const country = await this.country(countryId);
+    const data = this.costData(dto, {
+      code: country.currencyCode,
+      symbol: country.currencySymbol,
+    });
     const row = current
       ? await this.prisma.countryCostProfile.update({
           where: { id: current.id },
@@ -644,7 +653,10 @@ export class CountryProfilesService {
     );
   }
 
-  private costData(dto: CostProfileDto): Record<string, unknown> {
+  private costData(
+    dto: CostProfileDto,
+    inherited: { code: string | null; symbol: string | null },
+  ): Record<string, unknown> {
     const data: Record<string, unknown> = {};
     const money = [
       'tuitionMin',
@@ -701,11 +713,19 @@ export class CountryProfilesService {
         'PROFILE_CURRENCY_INVALID',
         'currencyCode must be a three-letter code',
       );
-    if (!dto.currencyCode?.trim())
-      throw bad('PROFILE_CURRENCY_REQUIRED', 'currencyCode is required');
+    const currencyCode = dto.currencyCode?.trim() || inherited.code?.trim();
+    if (!currencyCode)
+      throw bad(
+        'PROFILE_CURRENCY_REQUIRED',
+        'Set the country currency before publishing cost amounts',
+      );
     Object.assign(data, {
-      currencyCode: dto.currencyCode.trim().toUpperCase(),
-      currencySymbol: optionalText(dto.currencySymbol),
+      currencyCode: currencyCode.toUpperCase(),
+      /* The symbol follows whichever currency was used, so an inherited code
+       * never lands beside the previous currency's symbol. */
+      currencySymbol: dto.currencyCode?.trim()
+        ? optionalText(dto.currencySymbol)
+        : (optionalText(dto.currencySymbol) ?? inherited.symbol ?? undefined),
       tuitionPeriod: dto.tuitionPeriod,
       tuitionNotes: richText(dto.tuitionNotes),
       livingCostPeriod: dto.livingCostPeriod,
