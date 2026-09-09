@@ -283,7 +283,9 @@ describe('catalog core (e2e)', () => {
     expect(errorCode(stale)).toBe('COUNTRY_STALE_VERSION');
   });
 
-  it('publishes readiness failures, then exposes the published country publicly', async () => {
+  it('publishes a country with only a name, then exposes the published country publicly', async () => {
+    /* Left as a draft on purpose: the next case reads it back to prove a draft
+     * is not public. */
     const incomplete = await admin('post', '/api/v1/admin/countries', {
       continentId,
       name: `Incomplete ${suffix}`,
@@ -291,15 +293,28 @@ describe('catalog core (e2e)', () => {
       pageHeading: 'Incomplete',
       shortDescription: 'Needs ISO fields',
     }).expect(201);
-    const incompleteId = String(data(incomplete).id);
-    countryIds.push(incompleteId);
+    countryIds.push(String(data(incomplete).id));
+
+    /* This used to assert the opposite -- a country without ISO codes, a page
+     * heading and a short description was refused as COUNTRY_NOT_READY.
+     * Country is a CMS record now: the name is the only thing an author must
+     * supply, so a country carrying nothing else publishes, and the rest is
+     * content that gets filled in over time. The one surviving rule, that a
+     * country with no name at all cannot publish, is covered in
+     * `country-profiles.e2e-spec.ts`. */
+    const sparse = await admin('post', '/api/v1/admin/countries', {
+      continentId,
+      name: `Sparse ${suffix}`,
+      slug: `sparse-${suffix}`,
+    }).expect(201);
+    const sparseId = String(data(sparse).id);
+    countryIds.push(sparseId);
     const readiness = await admin(
       'post',
-      `/api/v1/admin/countries/${incompleteId}/publish`,
-      { expectedUpdatedAt: data(incomplete).updatedAt },
-    );
-    expect(readiness.status).toBe(422);
-    expect(errorCode(readiness)).toBe('COUNTRY_NOT_READY');
+      `/api/v1/admin/countries/${sparseId}/publish`,
+      { expectedUpdatedAt: data(sparse).updatedAt },
+    ).expect(201);
+    expect(data(readiness).status).toBe('PUBLISHED');
     const current = await admin(
       'get',
       `/api/v1/admin/countries/${countryIds[0]}`,

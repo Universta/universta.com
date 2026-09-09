@@ -484,7 +484,8 @@ describe('country structured profiles (e2e)', () => {
         `/api/v1/admin/countries/${id}/publish`,
         { expectedUpdatedAt: record(created).updatedAt },
       );
-      expect(response.status).toBe(200);
+      // Publish is a POST and answers 201, the same as everywhere else.
+      expect(response.status).toBe(201);
       expect(record(response).status).toBe('PUBLISHED');
     } finally {
       await prisma.country.deleteMany({ where: { id } }).catch(() => undefined);
