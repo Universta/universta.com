@@ -46,6 +46,13 @@ export function JoditRichText({
   const isDisabled = disabled || readOnly;
   const editorRef = useRef<IJodit | null>(null);
   const [variable, setVariable] = useState('');
+  /* Whether Jodit has produced its editable element. Jodit is loaded on
+   * demand, so it can finish initialising either side of the record being
+   * edited; gating on this means the read-only state is applied once both are
+   * there, in whichever order they arrive. A value read at first render went
+   * stale in the "record first, editor second" order and left the field
+   * permanently read-only, empty and impossible to type into. */
+  const [ready, setReady] = useState(false);
   /* Read inside a Jodit command callback, which is created once and would
    * otherwise capture the first render's handler. */
   const onChangeRef = useRef(onChange);
@@ -59,8 +66,30 @@ export function JoditRichText({
    * destroyed and recreated Jodit on every render, leaving that subscription
    * bound to a dead instance. Formatting applied in the editor and then never
    * reached the form. */
+  /* Read inside the capture callback, which is created once for the same
+   * reason as the handlers above. */
+  const nameRef = useRef(ariaLabel ?? label);
+  useEffect(() => {
+    nameRef.current = ariaLabel ?? label;
+    /* A field that is renamed while mounted -- a numbered paragraph or row
+     * shifting position -- renames its editable with it. */
+    const area = editorRef.current?.editor;
+    if (area) area.setAttribute('aria-label', nameRef.current);
+  }, [ariaLabel, label]);
   const captureEditor = useCallback((editor: IJodit) => {
     editorRef.current = editor;
+    /* Jodit's editable area is a bare contenteditable div: no role, no name.
+     * The field's name used to sit on the wrapper around it instead, which
+     * reads to a screen reader as a labelled group containing one anonymous
+     * control -- and left the actual control impossible to address by its
+     * label, in assistive tech and in the browser tests alike. The name
+     * belongs on the thing being typed into. */
+    const area = editor.editor;
+    if (!area) return;
+    area.setAttribute('role', 'textbox');
+    area.setAttribute('aria-multiline', 'true');
+    area.setAttribute('aria-label', nameRef.current);
+    setReady(true);
   }, []);
   const handleChange = useCallback((next: string) => {
     onChangeRef.current(next);
@@ -77,6 +106,11 @@ export function JoditRichText({
 
   /** Applies or removes a list through Jodit's own style engine. See the
    * comment on `controls.ul` for why its default control cannot toggle off. */
+  useEffect(() => {
+    if (!ready) return;
+    editorRef.current?.setReadOnly(isDisabled);
+  }, [ready, isDisabled]);
+
   const listExec = useCallback(
     (element: 'ul' | 'ol') =>
       (jodit: IJodit, _: unknown, { control }: { control: { args?: unknown[] } }) => {
@@ -99,9 +133,24 @@ export function JoditRichText({
     [],
   );
 
+  /* `config` must keep a stable identity for the life of the field.
+   *
+   * jodit-react destroys and rebuilds the editor whenever this object changes,
+   * and it subscribes to the editor's `change` event only once -- so a rebuild
+   * leaves that subscription attached to a dead instance and every later edit
+   * is silently dropped. `readonly` used to be read from here, and the Phase 1
+   * editor turns its fields read-only while a record loads and back again once
+   * it arrives: that single flip rebuilt the editor on every edit form, and an
+   * author's rewritten description was quietly discarded on save. Read-only is
+   * applied to the live instance instead, below. */
   const config = useMemo(
     () => ({
-      readonly: isDisabled,
+      /* Always built editable, then put into the right state against the live
+       * instance below. Building it read-only and lifting that later leaves
+       * the editable element without its `contenteditable` attribute, because
+       * Jodit's own `setReadOnly` short-circuits when it thinks the state is
+       * already what you asked for. One code path owns this instead. */
+      readonly: false,
       placeholder: placeholder ?? '',
       /* Jodit's own toolbar. The paragraph dropdown is replaced rather than
        * extended -- `Jodit.atom` is what stops it merging with the default
@@ -177,8 +226,15 @@ export function JoditRichText({
       toolbarAdaptive: false,
       minHeight: 180,
     }),
-    [isDisabled, placeholder, listExec],
+    [placeholder, listExec],
   );
+
+  /* Jodit is loaded on demand, so it can finish initialising either side of
+   * the record it is being edited with. Both orders have to end in the right
+   * state: the effect covers "editor first, record second", and the capture
+   * below reads this ref for "record first, editor second" -- which is where a
+   * value fixed at first render went stale and left the field permanently
+   * read-only, empty, and impossible to type into. */
 
   const insertHtml = useCallback((html: string) => {
     const editor = editorRef.current;
@@ -240,7 +296,10 @@ export function JoditRichText({
           ) : null}
         </div>
       ) : null}
-      <div data-rte={label} aria-label={ariaLabel ?? label}>
+      {/* The name is set on Jodit's editable element itself, in
+        * `captureEditor` -- not here, or the field would answer to its label
+        * twice. */}
+      <div data-rte={label}>
         <JoditEditor
           value={value ?? ''}
           config={config}

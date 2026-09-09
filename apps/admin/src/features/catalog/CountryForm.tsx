@@ -416,11 +416,18 @@ export function CountryForm({ countryId }: { countryId?: string }) {
         setRecord(country);
         setCore({
           externalUid: country.externalUid ?? "",
-          continentId: country.continent.id,
+          /* Optional since Country became a CMS record: a country saved with
+           * nothing but a name has no continent, and reading through it threw
+           * before the form had loaded a single field -- so the editor came up
+           * empty and then complained that the name was missing. */
+          continentId: country.continent?.id ?? "",
           name: country.name,
           slug: country.slug,
-          pageHeading: country.pageHeading,
-          shortDescription: country.shortDescription,
+          /* Nullable for the same reason as the continent above, and every
+           * control here is a controlled string -- a null reached `.trim()` on
+           * the next save and took the whole editor down with it. */
+          pageHeading: country.pageHeading ?? "",
+          shortDescription: country.shortDescription ?? "",
           overview: country.overview ?? "",
           tagline: country.tagline ?? "",
           iso2Code: country.iso2Code ?? "",
@@ -858,7 +865,12 @@ export function CountryForm({ countryId }: { countryId?: string }) {
     setNotice(null);
     try {
       const payload = {
-        continentId: core.continentId,
+        /* An unpicked continent is an empty select value, and the API reads
+         * that as a malformed id rather than as "none" -- so a country
+         * carrying nothing but a name, the one thing this editor now
+         * guarantees can be saved, came back as an invalid request naming no
+         * field at all. */
+        continentId: clearable(core.continentId),
         name: core.name.trim(),
         slug: core.slug.trim() || slugify(core.name),
         pageHeading: core.pageHeading.trim(),

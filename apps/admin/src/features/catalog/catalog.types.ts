@@ -46,13 +46,15 @@ export interface CountryRecord {
   id: string;
   name: string;
   slug: string;
-  pageHeading: string;
-  shortDescription: string;
+  pageHeading: string | null;
+  shortDescription: string | null;
   overview?: string | null;
   tagline?: string | null;
   capitalCity?: string | null;
   officialLanguage?: string | null;
-  continent: { id: string; name: string; slug: string };
+  /* Optional since Country became a CMS record: a country can be saved, and
+   * published, with nothing but a name. */
+  continent: { id: string; name: string; slug: string } | null;
   flag: FlagRecord | null;
   featured: boolean;
   displayOrder: number;
@@ -155,7 +157,9 @@ export interface SuggestionRecord {
   name: string;
   slug: string;
   flag: FlagRecord | null;
-  continent: { id: string; name: string; slug: string };
+  /* Optional since Country became a CMS record: a country can be saved, and
+   * published, with nothing but a name. */
+  continent: { id: string; name: string; slug: string } | null;
   universitiesCount: number | null;
 }
 

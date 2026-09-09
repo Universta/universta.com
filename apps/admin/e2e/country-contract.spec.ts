@@ -389,7 +389,9 @@ test.describe.serial('country client contract, end to end', () => {
     expect(stored.tagline).toBe(TAGLINE);
     expect(stored.capitalCity).toBe(CAPITAL);
     expect(stored.officialLanguage).toBe(LANGUAGE);
-    expect(stored.currencyCode).toBe('EUR');
+    /* The admin payload carries the pair as `currency`, and the editable name
+     * beside it as `currencyName` -- there is no top-level `currencyCode`. */
+    expect((stored.currency as { code: string }).code).toBe('EUR');
     expect(stored.currencyName).toBe('Euro');
     /* Display order is no longer edited here; the stored value is whatever the
      * record already had, and the editor sends it back untouched. */
@@ -588,7 +590,10 @@ test.describe.serial('country client contract, end to end', () => {
 
       const write = await api.patch(`/api/v1/admin/countries/${countryId}`, {
         headers,
+        /* The country update is a whole-record write, so the name has to
+         * travel with the mappings even though only the mappings change. */
         data: {
+          name: country.name,
           subjectIds: nextSubjects,
           tagIds: [String(tag.id)],
           expectedUpdatedAt: country.updatedAt,
