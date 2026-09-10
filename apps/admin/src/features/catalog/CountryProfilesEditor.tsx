@@ -73,8 +73,11 @@ type FieldSpec = {
     | "checkbox"
     | "textarea"
     | "select"
-    | "richtext";
+    | "richtext"
+    | "derived";
   options?: string[];
+  /** For `derived`: the value this field takes from elsewhere on the record. */
+  derived?: string;
   hint?: string;
   wide?: boolean;
   min?: number;
@@ -169,8 +172,8 @@ export type CountryProfilesHandle = {
  */
 export const CountryProfilesEditor = forwardRef<
   CountryProfilesHandle,
-  { countryId?: string }
->(function CountryProfilesEditor({ countryId }, ref) {
+  { countryId?: string; currencyCode?: string }
+>(function CountryProfilesEditor({ countryId, currencyCode }, ref) {
   const [bundle, setBundle] = useState<CountryProfileBundle | null>(null);
   const [intakeOptions, setIntakeOptions] = useState<IntakeOption[]>([]);
   const [cost, setCost] = useState<Draft>({});
@@ -425,7 +428,20 @@ export const CountryProfilesEditor = forwardRef<
             { key: "visaType", label: "Visa type" },
             { key: "visaProcessingTime", label: "Visa processing time" },
             { key: "visaFee", label: "Visa fee", kind: "number" },
-            { key: "visaFeeCurrencyCode", label: "Visa fee currency", hint: "Three letters" },
+            /* Not typed here. A visa fee is quoted in the Country's own
+             * currency, and a second copy on this card could only disagree
+             * with it -- the API derives the stored value from the Country as
+             * well, so this shows what will be saved rather than asking for
+             * it again. */
+            {
+              key: "visaFeeCurrencyCode",
+              label: "Visa fee currency",
+              kind: "derived",
+              derived: currencyCode || "",
+              hint: currencyCode
+                ? "Inherited from the country currency"
+                : "Set the country currency in Identity & listing",
+            },
             { key: "partTimeAllowed", label: "Part-time work allowed during study", kind: "checkbox" },
             { key: "partTimeHoursPerWeek", label: "Work hours per week", kind: "number" },
             { key: "partTimeHoursDuringBreaks", label: "Work hours during breaks", kind: "number" },
@@ -838,6 +854,24 @@ function Fields({
                 <p className="mt-1 text-xs text-[#667085]">{field.hint}</p>
               ) : null}
             </div>
+          );
+        if (field.kind === "derived")
+          return (
+            <label
+              key={field.key}
+              className={`block text-sm font-semibold ${span}`}
+            >
+              {field.label}
+              <input
+                className={`${inputClass} bg-[#F8FAFC] text-[#475467]`}
+                value={field.derived || "—"}
+                readOnly
+                aria-readonly="true"
+              />
+              {field.hint ? (
+                <p className="mt-1 text-xs text-[#667085]">{field.hint}</p>
+              ) : null}
+            </label>
           );
         if (field.kind === "checkbox")
           return (
