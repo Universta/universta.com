@@ -2,7 +2,9 @@ import Link from "next/link";
 import type { CountryPage } from "@/lib/countries";
 import type { CitySummary } from "@/lib/locations";
 import { counsellingHref } from "@/lib/counselling-link";
-import { intakeRange } from "@/lib/intake-range";
+const monthFormat = new Intl.DateTimeFormat("en", { month: "long" });
+const monthName = (value: number) =>
+  monthFormat.format(new Date(2020, value - 1, 1));
 import { formatDate, formatNumber } from "@/lib/format";
 import { RichText, richTextToPlainText } from "../phase1/RichText";
 
@@ -143,7 +145,14 @@ export function CountryDetailReference(props: CountryDetailReferenceProps) {
   const derivedPublicUniversityCount =
     derivedStatistics?.publicUniversitiesCount ?? null;
   const derivedCourseCount = derivedStatistics?.coursesCount ?? null;
-  const intakes = profiles.intakes ?? [];
+  /* The Country's own twelve-month selection is the single source for intakes.
+   * The intake module's per-country rows are still written by importers and
+   * still serve Courses and Universities, but the Country editor offers one
+   * intake control and this page reads exactly that. */
+  const intakeMonths = [...(country.configuration?.intakeMonths ?? [])].sort(
+    (a, b) => a - b,
+  );
+  const documents = country.documents ?? [];
   const profileTuition = range(cost?.tuitionMin, cost?.tuitionMax);
   const tuition =
     profileTuition ??
@@ -174,9 +183,7 @@ export function CountryDetailReference(props: CountryDetailReferenceProps) {
         ? "Available"
         : null;
 
-  const intakeLabels = intakes
-    .map((entry) => intakeRange(entry.intake ?? entry))
-    .filter(Boolean);
+  const intakeLabels = intakeMonths.map(monthName);
 
   const ielts =
     language?.ieltsRequirement && language.ieltsRequirement !== "NOT_REQUIRED"
@@ -442,7 +449,8 @@ export function CountryDetailReference(props: CountryDetailReferenceProps) {
     whyCards.length && ["why", `Why ${country.name}`],
     universitySectionAvailable && ["unis", "Universities"],
     subjects.length && ["subjects", "Subjects"],
-    intakes.length && ["intakes", "Intakes"],
+    intakeLabels.length && ["intakes", "Intakes"],
+    documents.length && ["documents", "Documents"],
     costRows.length && ["cost", "Cost"],
     scholarships.length && ["scholarships", "Scholarships"],
     languageRows.length && ["language", "English"],
@@ -852,59 +860,47 @@ export function CountryDetailReference(props: CountryDetailReferenceProps) {
         </section>
       ) : null}
 
+      {/* DOCUMENTS */}
+      {documents.length ? (
+        <section className="sec" id="documents">
+          <div className="wrap">
+            <div className="head">
+              <span className="eyebrow">Admissions</span>
+              <h2>Documents required to study in {country.name}</h2>
+              <p>What to have ready before you apply.</p>
+            </div>
+            <ul className="editorial-checklist">
+              {documents.map((doc) => (
+                <li key={doc.id}>
+                  <strong>
+                    {doc.name}
+                    {doc.isRequired ? null : (
+                      <span className="tag"> Optional</span>
+                    )}
+                  </strong>
+                  {doc.details ? <RichText value={doc.details} /> : null}
+                </li>
+              ))}
+            </ul>
+          </div>
+        </section>
+      ) : null}
+
       {/* INTAKES */}
-      {intakes.length ? (
+      {intakeLabels.length ? (
         <section className="sec sec-alt" id="intakes">
           <div className="wrap">
             <div className="head">
               <span className="eyebrow">Timing</span>
-              <h2>Major intakes in {country.name}</h2>
-              <p>
-                Published entry points, with the application window each one
-                records.
-              </p>
+              <h2>Intakes in {country.name}</h2>
+              <p>The months this destination opens for entry.</p>
             </div>
             <div className="intakes">
-              {intakes.map((entry) => {
-                const intake = entry.intake ?? entry;
-                const major = "isMajor" in entry && entry.isMajor;
-                const window = intakeRange(intake);
-                return (
-                  <article
-                    className={`intake${major ? " main" : ""}`}
-                    key={entry.id}
-                  >
-                    {major ? <span className="tag">Main intake</span> : null}
-                    <h3>{intake.name}</h3>
-                    {/* Only when the published window says more than the name. */}
-                    {window !== intake.name ? (
-                      <div className="mo">{window}</div>
-                    ) : null}
-                    <div className="i-row">
-                      <span>Availability</span>
-                      <b>{humanise(entry.availabilityStatus)}</b>
-                    </div>
-                    {entry.applicationOpeningNote ? (
-                      <div className="i-row">
-                        <span>Applications open</span>
-                        <b>{richTextToPlainText(entry.applicationOpeningNote)}</b>
-                      </div>
-                    ) : null}
-                    {entry.applicationDeadlineNote ? (
-                      <div className="i-row">
-                        <span>Apply by</span>
-                        <b>{richTextToPlainText(entry.applicationDeadlineNote)}</b>
-                      </div>
-                    ) : null}
-                    {entry.notes ? (
-                      <div className="i-row">
-                        <span>Notes</span>
-                        <b>{richTextToPlainText(entry.notes)}</b>
-                      </div>
-                    ) : null}
-                  </article>
-                );
-              })}
+              {intakeLabels.map((label) => (
+                <article className="intake" key={label}>
+                  <h3>{label}</h3>
+                </article>
+              ))}
             </div>
           </div>
         </section>

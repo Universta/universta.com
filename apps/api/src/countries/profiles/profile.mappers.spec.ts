@@ -9,7 +9,12 @@ const base = {
 };
 
 describe('public country profile policy', () => {
-  it('omits optional facts when source-backed verification is missing', () => {
+  /* This used to assert the opposite: a profile without a source reference and
+   * a verification date was withheld entirely, which made the pair required in
+   * practice even where nothing refused the save. Country is a CMS record now
+   * -- an author records what they know and it publishes as written, with the
+   * citation printed when there is one. */
+  it('publishes what an author recorded, cited or not', () => {
     const result = publicProfileSummary({
       costProfile: {
         ...base,
@@ -62,8 +67,10 @@ describe('public country profile policy', () => {
         verifiedAt: null,
       },
     });
-    expect(result.cost).toBeNull();
-    expect(result.statistics).toBeNull();
+    expect(result.cost?.currencyCode).toBe('CAD');
+    expect(result.cost?.tuitionMin).toBe('1');
+    expect(result.cost?.budgetBand).toBe('MID_RANGE');
+    expect(result.statistics).not.toBeNull();
   });
 
   it('preserves verified zero statistics and only publishes major active intakes', () => {

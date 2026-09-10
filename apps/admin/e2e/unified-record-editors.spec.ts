@@ -68,14 +68,18 @@ test.describe('unified record editors', () => {
      * anything, and every per-card Save is disabled until the country exists
      * to attach a card to. */
     await expect(page.getByRole('heading', { name: 'Cost and budget' })).toBeVisible();
-    // Exact: the section's own h2 ends with the word "intakes" as well.
-    await expect(page.getByRole('heading', { name: 'Intakes', exact: true })).toBeVisible();
+    /* Intakes are authored once, as the Country's own twelve-month selection
+     * in its configuration card, so there is no intake profile card here. */
+    await expect(page.getByRole('heading', { name: /^Intakes$/ })).toHaveCount(0);
+    await expect(
+      page.getByRole('group', { name: 'Available intake months' }),
+    ).toBeVisible();
     await expect(page.getByRole('button', { name: 'Save draft' })).toBeEnabled();
     await expect(page.getByRole('button', { name: 'Publish', exact: true })).toBeEnabled();
     const cardSaves = page.getByRole('button', {
-      name: /^Save (cost and budget|work and visa|english requirements|statistics|intakes)$/i,
+      name: /^Save (cost and budget|work and visa|english requirements|statistics)$/i,
     });
-    await expect(cardSaves).toHaveCount(5);
+    await expect(cardSaves).toHaveCount(4);
     for (const save of await cardSaves.all())
       await expect(save).toBeDisabled();
   });

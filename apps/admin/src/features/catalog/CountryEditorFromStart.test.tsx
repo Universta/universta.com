@@ -119,12 +119,14 @@ describe('new country editor visibility', () => {
   it('shows every profile section before the country exists', async () => {
     await openNewCountry();
 
+    /* Intakes are not here: the Country authors them once, as the twelve-month
+     * selection in its own configuration card, and the intake module's
+     * per-country records left this editor with it. */
     for (const heading of [
       'Cost and budget',
       'Work and visa',
       'English requirements',
       'Statistics',
-      'Intakes',
     ])
       expect(
         screen.getByRole('heading', { name: new RegExp(`^${heading}`) }),
@@ -146,13 +148,15 @@ describe('new country editor visibility', () => {
     expect(mocks.getCountryProfiles).not.toHaveBeenCalled();
   });
 
-  it('offers the catalogue intakes, and says when each card is saved', async () => {
+  it('offers the twelve months as the single intake control, and says when each card is saved', async () => {
     await openNewCountry();
 
-    expect(await screen.findByRole('checkbox', { name: 'Fall' })).toBeVisible();
+    const months = screen.getByRole('group', { name: 'Available intake months' });
+    expect(within(months).getAllByRole('checkbox')).toHaveLength(12);
+    expect(screen.queryByRole('heading', { name: /^Intakes$/ })).toBeNull();
     expect(
       screen.getAllByText(/Saved with the country the first time you use Save draft/i),
-    ).toHaveLength(5);
+    ).toHaveLength(4);
   });
 
   it('keeps the curation pickers on screen, disabled, and says why', async () => {
@@ -169,26 +173,21 @@ describe('new country editor visibility', () => {
 });
 
 describe('first save child persistence', () => {
-  it('writes the profile and intake drafts against the id the country was just given', async () => {
+  it('writes the profile drafts against the id the country was just given', async () => {
     await openNewCountry();
 
     await userEvent.type(screen.getByLabelText(/^Country name/), 'Malta');
     await userEvent.type(screen.getByLabelText(/^Tuition minimum/), '9000');
-    await userEvent.click(await screen.findByRole('checkbox', { name: 'Fall' }));
 
     await userEvent.click(screen.getByRole('button', { name: /save draft/i }));
 
     await waitFor(() => expect(mocks.createCountry).toHaveBeenCalled());
-    await waitFor(() => expect(mocks.putCountryProfile).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(mocks.putCountryProfile).toHaveBeenCalledTimes(1));
 
-    const [costCall, intakeCall] = mocks.putCountryProfile.mock.calls;
+    const [costCall] = mocks.putCountryProfile.mock.calls;
     expect(costCall[0]).toBe('country-new');
     expect(costCall[1]).toBe('cost');
     expect(costCall[2].tuitionMin).toBe('9000');
-    expect(intakeCall[1]).toBe('intakes');
-    expect(intakeCall[2].intakes).toEqual([
-      expect.objectContaining({ intakeId: 'intake-fall' }),
-    ]);
   });
 
   it('does not create child records for cards nobody touched', async () => {
@@ -203,19 +202,15 @@ describe('first save child persistence', () => {
 });
 
 describe('rich text coverage in the country editor', () => {
-  it('edits both intake application notes as rich text', async () => {
+  it('edits a document detail as rich text', async () => {
     await openNewCountry();
-    await userEvent.click(await screen.findByRole('checkbox', { name: 'Fall' }));
 
-    for (const label of [
-      'Applications open note',
-      'Application deadline note',
-      'Notes',
-    ])
-      expect(await screen.findByRole('textbox', { name: label })).toHaveAttribute(
-        'aria-multiline',
-        'true',
-      );
+    await userEvent.click(screen.getByRole('button', { name: '+ Passport' }));
+
+    expect(await screen.findByRole('textbox', { name: 'Details 1' })).toHaveAttribute(
+      'aria-multiline',
+      'true',
+    );
   });
 
   it('edits an editorial media caption as rich text', async () => {
@@ -250,5 +245,80 @@ describe('rich text coverage in the country editor', () => {
     await waitFor(() => expect(screen.queryByRole('textbox', { name: 'Description 1' })).toBeNull());
     // A fact's value is a figure, and stays an ordinary input.
     expect((await screen.findByLabelText('Value')).tagName).toBe('INPUT');
+  });
+});
+
+/**
+ * The documents a student needs in hand for a destination. Offered as
+ * suggestions so an author starts from a click, but nothing is stored until
+ * they add it -- and a destination that asks for something else adds its own.
+ */
+describe('country documents', () => {
+  it('offers suggestions without saving any of them', async () => {
+    await openNewCountry();
+
+    expect(screen.getByRole('button', { name: '+ Passport' })).toBeVisible();
+    expect(screen.getByRole('button', { name: '+ CV / Resume' })).toBeVisible();
+    expect(screen.getByText(/No documents listed/i)).toBeVisible();
+
+    await userEvent.type(screen.getByLabelText(/^Country name/), 'Malta');
+    await userEvent.click(screen.getByRole('button', { name: /save draft/i }));
+
+    await waitFor(() => expect(mocks.createCountry).toHaveBeenCalled());
+    expect(mocks.createCountry.mock.calls[0][0].documents).toEqual([]);
+  });
+
+  it('adds a suggestion, and stops offering the one already added', async () => {
+    await openNewCountry();
+
+    await userEvent.click(screen.getByRole('button', { name: '+ Passport' }));
+
+    expect(screen.getByLabelText(/^Document name/)).toHaveValue('Passport');
+    expect(screen.queryByRole('button', { name: '+ Passport' })).toBeNull();
+    expect(screen.getByRole('button', { name: '+ CV / Resume' })).toBeVisible();
+  });
+
+  it('adds a document nobody suggested, and marks it optional', async () => {
+    await openNewCountry();
+
+    await userEvent.click(screen.getByRole('button', { name: '+ Add document' }));
+    await userEvent.type(screen.getByLabelText(/^Document name/), 'Police clearance');
+    await userEvent.click(screen.getByLabelText('Required'));
+
+    await userEvent.type(screen.getByLabelText(/^Country name/), 'Malta');
+    await userEvent.click(screen.getByRole('button', { name: /save draft/i }));
+
+    await waitFor(() => expect(mocks.createCountry).toHaveBeenCalled());
+    expect(mocks.createCountry.mock.calls[0][0].documents).toEqual([
+      { name: 'Police clearance', details: undefined, isRequired: false },
+    ]);
+  });
+
+  it('loads stored documents back for editing', async () => {
+    mocks.getCountry.mockResolvedValue({
+      data: {
+        ...created,
+        documents: [
+          { id: 'd1', name: 'Passport', details: '<p>Six months validity.</p>', isRequired: true },
+        ],
+      },
+    });
+    render(<CountryForm countryId="country-new" />);
+
+    expect(await screen.findByLabelText(/^Document name/)).toHaveValue('Passport');
+    expect(await screen.findByRole('textbox', { name: 'Details 1' })).toHaveTextContent(
+      'Six months validity.',
+    );
+  });
+
+  it('removes a document', async () => {
+    await openNewCountry();
+
+    await userEvent.click(screen.getByRole('button', { name: '+ Passport' }));
+    expect(screen.getByLabelText(/^Document name/)).toHaveValue('Passport');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Remove' }));
+    expect(screen.queryByLabelText(/^Document name/)).toBeNull();
+    expect(screen.getByRole('button', { name: '+ Passport' })).toBeVisible();
   });
 });

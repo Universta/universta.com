@@ -75,6 +75,14 @@ export interface CountryRecord {
     intakeMonths: number[];
     postStudyWorkPermitMonths: number | null;
   };
+  /** What a student needs in hand to study here, in the order the Admin put
+   * them. Empty when none are listed. */
+  documents?: Array<{
+    id: string;
+    name: string;
+    details: string | null;
+    isRequired: boolean;
+  }>;
   popularUniversityIds?: string[];
   popularCourseIds?: string[];
   subjectIds?: string[];

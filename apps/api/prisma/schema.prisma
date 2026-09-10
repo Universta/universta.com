@@ -898,6 +898,7 @@ model Country {
   intakes              CountryIntake[]
   statistics           CountryStatistic?
   contentSections      CountryContentSection[]
+  documents            CountryDocument[]
   faqs                 CountryFaq[]
   tagMaps              CountryTagMap[]
   subjectMaps          CountrySubject[]
@@ -1145,6 +1146,28 @@ model CountryContentSection {
   @@index([primaryMediaId])
   @@index([secondaryMediaId])
   @@map("country_content_sections")
+}
+
+/// What a student needs in hand to study in a destination -- a passport, a
+/// transcript, a test result. The Admin writes the list per country from a set
+/// of suggestions plus anything it needs of its own, so this is a plain owned
+/// list rather than a shared taxonomy: two countries asking for "Proof of
+/// funds" mean different things by it, and neither should edit the other's.
+model CountryDocument {
+  id           String   @id @default(uuid()) @db.Char(36)
+  countryId    String   @map("country_id") @db.Char(36)
+  name         String   @db.VarChar(200)
+  /// Authored in the WYSIWYG, so it is stored and sanitised as rich text.
+  details      String?  @db.LongText
+  isRequired   Boolean  @default(true) @map("is_required")
+  displayOrder Int      @default(0) @map("display_order")
+  createdAt    DateTime @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.DateTime(3)
+
+  country Country @relation(fields: [countryId], references: [id], onDelete: Cascade)
+
+  @@index([countryId, displayOrder])
+  @@map("country_documents")
 }
 
 model CountryFaq {

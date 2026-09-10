@@ -160,7 +160,9 @@ test.describe('approved public country experience', () => {
     await page.goto(`${listing}/canada`);
 
     await expect(page.getByRole('heading', { name: 'Cost of study' })).toBeVisible();
-    await expect(page.getByRole('heading', { name: 'Major intakes' })).toBeVisible();
+    /* The heading follows the source: intakes are the Country's own month
+     * selection now, not the intake module's per-country records. */
+    await expect(page.getByRole('heading', { name: /^Intakes in / })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Language requirements' })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Work and visa pathways' })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'What these figures mean' })).toBeVisible();

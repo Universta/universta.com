@@ -36,6 +36,13 @@ export interface Country {
   profiles?: ProfileSummary;
   currency?: { code: string; symbol: string | null } | null;
   subjects?: Array<{ id: string; name: string; slug: string }>;
+  /** What a student needs in hand to study here; empty when none are listed. */
+  documents?: Array<{
+    id: string;
+    name: string;
+    details: string | null;
+    isRequired: boolean;
+  }>;
   configuration?: {
     features: Array<{ code: string; label: string }>;
     acceptedTests: Array<{ code: string; label: string }>;

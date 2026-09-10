@@ -371,7 +371,6 @@ test.describe.serial('country client contract, end to end', () => {
       'Work and visa',
       'English requirements',
       'Statistics',
-      'Intakes',
     ])
       await expect(
         page.getByRole('heading', { name: heading, exact: true }),
@@ -855,42 +854,85 @@ test.describe.serial('country client contract, end to end', () => {
     ).toBeNull();
   });
 
-  test('persists intakes with metadata across two saves', async ({ page }) => {
+  test('authors intakes once, as the twelve-month selection', async ({ page }) => {
     await loginAsAdmin(page);
-    const countryId = String((await openCountry(page)).id);
-    const intakes = card(page, 'Intakes');
-    const boxes = intakes.getByRole('checkbox');
-    await expect(boxes.first()).toBeVisible({ timeout: 30_000 });
+    await openCountry(page);
 
-    await boxes.first().check();
-    await intakes.getByRole('checkbox', { name: 'Major intake', exact: true }).first().check();
-    await choice(intakes, 'Applications open').first().selectOption('3');
-    await choice(intakes, 'Applications close').first().selectOption('6');
-    await box(intakes, 'Notes').first().fill('Acceptance intake note.');
-    await page.getByRole('button', { name: /^Save intakes$/ }).click();
-    await expect(page.getByRole('status')).toContainText('saved', { timeout: 30_000 });
+    /* The intake module's per-country card has left this editor. A Country
+     * states its intakes as months, in one place, and that is what the public
+     * page reads. */
+    await expect(page.getByRole('heading', { name: /^Intakes$/ })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /^Save intakes$/ })).toHaveCount(0);
 
-    const first = (await storedProfiles(countryId)).intakes;
-    expect(first.length).toBeGreaterThan(0);
-    expect(first[0].applicationOpeningMonth).toBe(3);
-    expect(first[0].isMajor).toBe(true);
-    /* The note is authored in the WYSIWYG, so it is stored as the rich text
-     * the editor produced rather than as the bare sentence typed into it. */
-    expect(String(first[0].notes)).toContain('Acceptance intake note.');
-    expect(String(first[0].notes)).toMatch(/^<p>/);
+    const months = page.getByRole('group', { name: 'Available intake months' });
+    await expect(months.getByRole('checkbox')).toHaveCount(12);
+    await months.getByRole('checkbox', { name: 'February', exact: true }).check();
+    await months.getByRole('checkbox', { name: 'July', exact: true }).check();
+    await saveCountry(page);
 
-    // Second save: the intake token comes from the intake rows, and this is
-    // the path that used to conflict on the very first write.
-    await page.reload();
-    await expect(page.getByRole('button', { name: /^Save intakes$/ })).toBeVisible({
-      timeout: 30_000,
+    await openCountry(page);
+    const savedMonths = page.getByRole('group', {
+      name: 'Available intake months',
     });
-    await box(intakes, 'Notes').first().fill('Acceptance intake note, revised.');
-    await page.getByRole('button', { name: /^Save intakes$/ }).click();
-    await expect(page.getByRole('status')).toContainText('saved', { timeout: 30_000 });
-    expect(String((await storedProfiles(countryId)).intakes[0].notes)).toContain(
-      'Acceptance intake note, revised.',
+    await expect(
+      savedMonths.getByRole('checkbox', { name: 'February', exact: true }),
+    ).toBeChecked();
+    await expect(
+      savedMonths.getByRole('checkbox', { name: 'July', exact: true }),
+    ).toBeChecked();
+    expect(
+      ((await storedCountry()).configuration as { intakeMonths: number[] }).intakeMonths,
+    ).toEqual([2, 7]);
+
+    // And the published page states them once, from that selection.
+    await page.goto(`${webBaseUrl}/countries/${COUNTRY_SLUG}`);
+    await expect(page.locator('#intakes')).toContainText('February');
+    await expect(page.locator('#intakes')).toContainText('July');
+  });
+
+  /* The documents a student needs in hand. Suggested so an author starts from
+   * a click, but nothing is stored until they add it -- and a destination that
+   * asks for something else adds its own. */
+  test('lists the documents required to study here, and publishes them', async ({
+    page,
+  }) => {
+    await loginAsAdmin(page);
+    await openCountry(page);
+
+    // Exact: "+ Passport" is a prefix of "+ Passport-size photographs".
+    await page.getByRole('button', { name: '+ Passport', exact: true }).click();
+    await page.getByRole('button', { name: '+ Add document' }).click();
+    const names = field(page, 'Document name');
+    await names.last().fill('Acceptance police clearance');
+    await richText(page, 'Details 2').fill('Issued within six months.');
+    /* The custom one is not compulsory. Matched as a checkbox by its exact
+     * name: the language card's requirement selects carry "required" in their
+     * options and a loose label match reaches them instead. */
+    await page
+      .getByRole('checkbox', { name: 'Required', exact: true })
+      .last()
+      .uncheck();
+    await saveCountry(page);
+
+    await openCountry(page);
+    await expect(field(page, 'Document name').first()).toHaveValue('Passport');
+    await expect(field(page, 'Document name').last()).toHaveValue(
+      'Acceptance police clearance',
     );
+
+    const stored = (await storedCountry()).documents as Array<Record<string, unknown>>;
+    expect(stored.map((row) => row.name)).toEqual([
+      'Passport',
+      'Acceptance police clearance',
+    ]);
+    expect(stored[1].isRequired).toBe(false);
+    expect(String(stored[1].details)).toContain('Issued within six months.');
+
+    await page.goto(`${webBaseUrl}/countries/${COUNTRY_SLUG}`);
+    const documents = page.locator('#documents');
+    await expect(documents).toContainText(`Documents required to study in ${COUNTRY_NAME}`);
+    await expect(documents).toContainText('Passport');
+    await expect(documents).toContainText('Issued within six months.');
   });
 
   test('attaches hero and flag images through the real picker and publishes them', async ({
