@@ -9,10 +9,9 @@ import {
 } from "react";
 import {
   getCountryProfiles,
-  listIntakeOptions,
   putCountryProfile,
 } from "./catalog-client";
-import type { CountryProfileBundle, IntakeOption } from "./catalog.types";
+import type { CountryProfileBundle } from "./catalog.types";
 import { RichTextEditor } from "@/features/shared/RichTextEditor";
 import { variablesForContext } from "@/features/shared/variable-autocomplete";
 
@@ -51,17 +50,7 @@ const LANGUAGE_REQUIREMENTS = [
   "NOT_REQUIRED",
   "VARIES",
 ];
-const INTAKE_AVAILABILITY = [
-  "AVAILABLE",
-  "LIMITED",
-  "NOT_AVAILABLE",
-  "NOT_PUBLISHED",
-];
 const SOURCE_MODES = ["DERIVED", "MANUAL", "IMPORTED", "OFFICIAL"];
-const MONTHS = [
-  "January", "February", "March", "April", "May", "June",
-  "July", "August", "September", "October", "November", "December",
-];
 
 type FieldSpec = {
   key: string;
@@ -84,43 +73,6 @@ type FieldSpec = {
   max?: number;
   step?: number;
 };
-
-type IntakeDraft = {
-  intakeId: string;
-  isMajor: boolean;
-  availabilityStatus: string;
-  applicationOpeningMonth: string;
-  applicationDeadlineMonth: string;
-  applicationOpeningNote: string;
-  applicationDeadlineNote: string;
-  notes: string;
-};
-
-function emptyIntake(intakeId: string): IntakeDraft {
-  return {
-    intakeId,
-    isMajor: false,
-    availabilityStatus: "AVAILABLE",
-    applicationOpeningMonth: "",
-    applicationDeadlineMonth: "",
-    applicationOpeningNote: "",
-    applicationDeadlineNote: "",
-    notes: "",
-  };
-}
-
-function intakeFromRecord(row: Record<string, unknown>): IntakeDraft {
-  return {
-    intakeId: String(row.intakeId ?? row.id ?? ""),
-    isMajor: bool(row.isMajor),
-    availabilityStatus: text(row.availabilityStatus) || "AVAILABLE",
-    applicationOpeningMonth: text(row.applicationOpeningMonth),
-    applicationDeadlineMonth: text(row.applicationDeadlineMonth),
-    applicationOpeningNote: text(row.applicationOpeningNote),
-    applicationDeadlineNote: text(row.applicationDeadlineNote),
-    notes: text(row.notes),
-  };
-}
 
 /** Every select on these cards offers a "Not set" option whose value is the
  * empty string, which the API validates against a fixed list that has no
@@ -161,7 +113,7 @@ export type CountryProfilesHandle = {
 };
 
 /**
- * Cost, visa, English, statistics and intakes.
+ * Cost, visa, English and statistics.
  *
  * These are child records of a Country and each one saves on its own, so the
  * whole editor used to be replaced by "Save this Country first" until the row
@@ -175,12 +127,10 @@ export const CountryProfilesEditor = forwardRef<
   { countryId?: string; currencyCode?: string }
 >(function CountryProfilesEditor({ countryId, currencyCode }, ref) {
   const [bundle, setBundle] = useState<CountryProfileBundle | null>(null);
-  const [intakeOptions, setIntakeOptions] = useState<IntakeOption[]>([]);
   const [cost, setCost] = useState<Draft>({});
   const [work, setWork] = useState<Draft>({});
   const [language, setLanguage] = useState<Draft>({});
   const [statistics, setStatistics] = useState<Draft>({ sourceMode: "DERIVED" });
-  const [intakes, setIntakes] = useState<IntakeDraft[]>([]);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState("");
@@ -193,19 +143,13 @@ export const CountryProfilesEditor = forwardRef<
     setWork((data.work ?? {}) as Draft);
     setLanguage((data.language ?? {}) as Draft);
     setStatistics((data.statistics ?? { sourceMode: "DERIVED" }) as Draft);
-    setIntakes((data.intakes ?? []).map(intakeFromRecord));
   }, []);
 
   useEffect(() => {
-    /* Intake options are catalogue-wide, so they load either way. The
-     * country's own profiles only exist once the country does. */
-    void Promise.all([
-      countryId ? getCountryProfiles(countryId) : Promise.resolve(null),
-      listIntakeOptions(),
-    ])
-      .then(([profiles, options]) => {
+    /* A country's profiles only exist once the country does. */
+    void (countryId ? getCountryProfiles(countryId) : Promise.resolve(null))
+      .then((profiles) => {
         if (profiles) seed(profiles.data);
-        setIntakeOptions(options.data);
       })
       .catch((cause: unknown) =>
         setError(
@@ -220,32 +164,14 @@ export const CountryProfilesEditor = forwardRef<
    * flush the parent runs after it first creates the Country, so a draft typed
    * before there was an id is written exactly as one typed after it. */
   const payloadFor = useCallback(
-    (section: Section | "intakes"): Record<string, unknown> => {
-      if (section === "intakes")
-        return {
-          // The intakes version token is the newest CountryIntake row, not
-          // the country itself, and must be omitted entirely while none
-          // exist -- sending one against no rows is treated as stale.
-          expectedUpdatedAt: intakeVersion(bundle),
-          intakes: intakes.map((row, displayOrder) => ({
-            intakeId: row.intakeId,
-            isMajor: row.isMajor,
-            availabilityStatus: row.availabilityStatus,
-            applicationOpeningMonth: row.applicationOpeningMonth || undefined,
-            applicationDeadlineMonth: row.applicationDeadlineMonth || undefined,
-            applicationOpeningNote: row.applicationOpeningNote || undefined,
-            applicationDeadlineNote: row.applicationDeadlineNote || undefined,
-            notes: row.notes || undefined,
-            displayOrder,
-          })),
-        };
+    (section: Section): Record<string, unknown> => {
       const drafts: Record<Section, Draft> = { cost, work, language, statistics };
       return {
         ...clearedChoices(drafts[section]),
         expectedUpdatedAt: drafts[section].updatedAt as string | undefined,
       };
     },
-    [bundle, cost, intakes, language, statistics, work],
+    [cost, language, statistics, work],
   );
 
   /* A country created with profile drafts already filled in writes them
@@ -256,21 +182,20 @@ export const CountryProfilesEditor = forwardRef<
     ref,
     () => ({
       persistDrafts: async (newCountryId: string) => {
-        const pending: Array<Section | "intakes"> = [];
+        const pending: Section[] = [];
         if (populated(cost)) pending.push("cost");
         if (populated(work)) pending.push("work");
         if (populated(language)) pending.push("language");
         if (populated(statistics, { sourceMode: "DERIVED" }))
           pending.push("statistics");
-        if (intakes.length) pending.push("intakes");
         for (const section of pending)
           await putCountryProfile(newCountryId, section, payloadFor(section));
       },
     }),
-    [cost, intakes, language, payloadFor, statistics, work],
+    [cost, language, payloadFor, statistics, work],
   );
 
-  async function save(section: Section | "intakes") {
+  async function save(section: Section) {
     if (!countryId) return;
     setMessage("");
     setError("");
@@ -363,7 +288,7 @@ export const CountryProfilesEditor = forwardRef<
           Country profiles
         </p>
         <h2 id="country-profiles-heading" className="mt-2 text-2xl font-semibold">
-          Cost, visa, English, statistics and intakes
+          Cost, visa, English and statistics
         </h2>
         <p className="mt-2 max-w-3xl text-sm leading-6 text-[#667085]">
           Each section saves on its own. Leave a value empty to let the
@@ -558,144 +483,6 @@ export const CountryProfilesEditor = forwardRef<
         </p>
       </ProfileCard>
 
-      <ProfileCard
-        title="Intakes"
-        description="When students can start, and when applications open and close."
-        onSave={() => void save("intakes")}
-        busy={saving === "intakes"}
-        unsaved={!countryId}
-        full
-      >
-        <div className="sm:col-span-2 space-y-4">
-          {intakeOptions.length === 0 ? (
-            <p className="text-sm text-[#667085]">No intake records exist yet.</p>
-          ) : null}
-          {intakeOptions.map((option) => {
-            const index = intakes.findIndex((row) => row.intakeId === option.id);
-            const selected = index >= 0;
-            const row = selected ? intakes[index] : null;
-            return (
-              <div
-                key={option.id}
-                className="rounded-xl border border-[#E8ECF3] p-4"
-              >
-                <label className="flex items-center gap-2 text-sm font-semibold">
-                  <input
-                    type="checkbox"
-                    checked={selected}
-                    onChange={() =>
-                      setIntakes((current) =>
-                        selected
-                          ? current.filter((item) => item.intakeId !== option.id)
-                          : [...current, emptyIntake(option.id)],
-                      )
-                    }
-                  />
-                  {option.name}
-                </label>
-                {row ? (
-                  <div className="mt-4 grid gap-4 sm:grid-cols-2">
-                    <label className="flex items-center gap-2 text-sm font-semibold">
-                      <input
-                        type="checkbox"
-                        checked={row.isMajor}
-                        onChange={(event) =>
-                          updateIntake(setIntakes, option.id, {
-                            isMajor: event.target.checked,
-                          })
-                        }
-                      />
-                      Major intake
-                    </label>
-                    <label className="text-sm font-semibold">
-                      Availability
-                      <select
-                        className={inputClass}
-                        value={row.availabilityStatus}
-                        onChange={(event) =>
-                          updateIntake(setIntakes, option.id, {
-                            availabilityStatus: event.target.value,
-                          })
-                        }
-                      >
-                        {INTAKE_AVAILABILITY.map((value) => (
-                          <option key={value} value={value}>
-                            {value.replace(/_/g, " ").toLowerCase()}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <MonthField
-                      label="Applications open"
-                      value={row.applicationOpeningMonth}
-                      onChange={(value) =>
-                        updateIntake(setIntakes, option.id, {
-                          applicationOpeningMonth: value,
-                        })
-                      }
-                    />
-                    <MonthField
-                      label="Applications close"
-                      value={row.applicationDeadlineMonth}
-                      onChange={(value) =>
-                        updateIntake(setIntakes, option.id, {
-                          applicationDeadlineMonth: value,
-                        })
-                      }
-                    />
-                    {/* Both notes are what the public intake card actually
-                      * prints beside "Applications open" and "Apply by" -- the
-                      * month selectors above only place the window. They had
-                      * no control at all until now, so a value could reach the
-                      * page through an import but never be written or
-                      * corrected here. */}
-                    <div className="sm:col-span-2">
-                      <RichTextEditor
-                        label="Applications open note"
-                        value={row.applicationOpeningNote}
-                        enableImages={false}
-                        minHeight="min-h-20"
-                        allowedVariables={variablesForContext("country")}
-                        onChange={(value) =>
-                          updateIntake(setIntakes, option.id, {
-                            applicationOpeningNote: value,
-                          })
-                        }
-                      />
-                    </div>
-                    <div className="sm:col-span-2">
-                      <RichTextEditor
-                        label="Application deadline note"
-                        value={row.applicationDeadlineNote}
-                        enableImages={false}
-                        minHeight="min-h-20"
-                        allowedVariables={variablesForContext("country")}
-                        onChange={(value) =>
-                          updateIntake(setIntakes, option.id, {
-                            applicationDeadlineNote: value,
-                          })
-                        }
-                      />
-                    </div>
-                    <div className="sm:col-span-2">
-                      <RichTextEditor
-                        label="Notes"
-                        value={row.notes}
-                        enableImages={false}
-                        minHeight="min-h-20"
-                        allowedVariables={variablesForContext("country")}
-                        onChange={(value) =>
-                          updateIntake(setIntakes, option.id, { notes: value })
-                        }
-                      />
-                    </div>
-                  </div>
-                ) : null}
-              </div>
-            );
-          })}
-        </div>
-      </ProfileCard>
     </section>
   );
 });
@@ -716,63 +503,12 @@ function populated(draft: Draft, defaults: Draft = {}): boolean {
   );
 }
 
-/** Newest `updatedAt` across the country's saved intakes, or undefined when
- * the country has none yet. */
-function intakeVersion(bundle: CountryProfileBundle | null): string | undefined {
-  const stamps = (bundle?.intakes ?? [])
-    .map((row) => text(row.updatedAt))
-    .filter(Boolean)
-    .sort();
-  return stamps.length ? stamps[stamps.length - 1] : undefined;
-}
-
-const LABELS: Record<Section | "intakes", string> = {
+const LABELS: Record<Section, string> = {
   cost: "Cost and budget",
   work: "Work and visa",
   language: "English requirements",
   statistics: "Statistics",
-  intakes: "Intakes",
 };
-
-function updateIntake(
-  set: React.Dispatch<React.SetStateAction<IntakeDraft[]>>,
-  intakeId: string,
-  patch: Partial<IntakeDraft>,
-) {
-  set((current) =>
-    current.map((row) =>
-      row.intakeId === intakeId ? { ...row, ...patch } : row,
-    ),
-  );
-}
-
-function MonthField({
-  label,
-  value,
-  onChange,
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-}) {
-  return (
-    <label className="text-sm font-semibold">
-      {label}
-      <select
-        className={inputClass}
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-      >
-        <option value="">Not published</option>
-        {MONTHS.map((name, index) => (
-          <option key={name} value={String(index + 1)}>
-            {name}
-          </option>
-        ))}
-      </select>
-    </label>
-  );
-}
 
 function ProfileCard({
   title,

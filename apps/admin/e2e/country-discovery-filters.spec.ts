@@ -330,8 +330,12 @@ test.describe.serial('public country discovery filters', () => {
     await page.goto(`${webBaseUrl}/countries?budgetBand=BUDGET_FRIENDLY&limit=100`);
     expect(ours(await names(page))).toEqual([`${MARK} Alphaland`]);
     await page.goto(`${webBaseUrl}/countries?budgetBand=PREMIUM&limit=100`);
-    // Betaland publishes PREMIUM with no source, and a band is a rating.
-    expect(ours(await names(page))).toEqual([]);
+    /* Betaland publishes PREMIUM without citing a source. That used to remove
+     * it from this filter: a band was treated as a rating, and a rating needed
+     * a source before it counted. A Country is a CMS record now -- what an
+     * author publishes is published -- so the filter answers with it, rather
+     * than showing the badge on the page and then refusing to match it. */
+    expect(ours(await names(page))).toEqual([`${MARK} Betaland`]);
   });
 
   test('keeps unverified destinations in filters that ask about plain facts', async ({

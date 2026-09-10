@@ -1,14 +1,14 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { Transform, type TransformFnParams } from 'class-transformer';
+import { Transform, Type, type TransformFnParams } from 'class-transformer';
 import {
+  ArrayMaxSize,
   ArrayUnique,
   IsArray,
-  IsNumber,
   IsBoolean,
+  IsISO8601,
   IsIn,
   IsInt,
-  IsISO8601,
-  MinLength,
+  IsNumber,
   IsOptional,
   IsString,
   IsUUID,
@@ -17,6 +17,8 @@ import {
   Max,
   MaxLength,
   Min,
+  MinLength,
+  ValidateNested,
 } from 'class-validator';
 import {
   COUNTRY_STATUSES,
@@ -53,6 +55,28 @@ function countryCodeValue({ value }: TransformFnParams): unknown {
 function arrayValue({ value }: TransformFnParams): unknown {
   if (Array.isArray(value)) return value;
   return typeof value === 'string' && value.trim() ? [value] : value;
+}
+
+/** One document a student needs in order to study in this destination. */
+export class CountryDocumentDto {
+  @ApiProperty({ example: 'Passport' })
+  @Transform(trimValue)
+  @IsString()
+  @Length(1, 200)
+  name!: string;
+
+  /** Authored in the WYSIWYG, so it is sanitised on the way in like every
+   * other descriptive Country field. */
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(4000)
+  details?: string;
+
+  @ApiPropertyOptional({ default: true })
+  @IsOptional()
+  @IsBoolean()
+  isRequired?: boolean;
 }
 
 export class CreateCountryDto {
@@ -226,6 +250,17 @@ export class CreateCountryDto {
   @IsString({ each: true })
   @MaxLength(50, { each: true })
   acceptedTests?: string[];
+
+  /* Owned by the country and edited as one list, so an omitted key means
+   * "leave them alone" and a supplied one replaces the set -- the same
+   * contract `subjectIds` and `tagIds` already follow. */
+  @ApiPropertyOptional({ type: [CountryDocumentDto] })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(50)
+  @ValidateNested({ each: true })
+  @Type(() => CountryDocumentDto)
+  documents?: CountryDocumentDto[];
 
   @ApiPropertyOptional({
     description: 'Month numbers, 1 (January) through 12 (December)',

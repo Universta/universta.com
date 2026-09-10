@@ -163,13 +163,6 @@ function decimal(value: unknown): string | null {
   return null;
 }
 
-function verified(record: {
-  sourceReference: string | null;
-  verifiedAt: Date | null;
-}): boolean {
-  return Boolean(record.sourceReference && record.verifiedAt);
-}
-
 function date(value: Date | null): string | null {
   return value?.toISOString() ?? null;
 }
@@ -256,63 +249,62 @@ export function serializeIntake(
   };
 }
 
+/* Profile values used to publish only once they carried a source reference and
+ * a verification date; without both, the whole card was withheld from the
+ * public payload. That made the pair required in practice even where nothing
+ * refused the save. Country is a CMS record now: what an author records is what
+ * the page shows, and the two columns are printed when present rather than
+ * standing between the value and the reader. */
 export function publicProfileSummary(bundle: ProfileBundle) {
-  const cost =
-    bundle.costProfile && verified(bundle.costProfile)
-      ? {
-          /* Inherit the Country's currency where the profile has none, so the
-           * published figures always carry a unit. */
-          currencyCode:
-            bundle.costProfile.currencyCode ?? bundle.currencyCode ?? null,
-          currencySymbol:
-            bundle.costProfile.currencySymbol ?? bundle.currencySymbol ?? null,
-          tuitionMin: decimal(bundle.costProfile.tuitionMin),
-          tuitionMax: decimal(bundle.costProfile.tuitionMax),
-          tuitionPeriod: bundle.costProfile.tuitionPeriod,
-          budgetBand: bundle.costProfile.budgetBand,
-        }
-      : null;
-  const work =
-    bundle.workProfile && verified(bundle.workProfile)
-      ? {
-          partTimeAllowed: bundle.workProfile.partTimeAllowed,
-          postStudyWorkAvailable: bundle.workProfile.postStudyWorkAvailable,
-          postStudyWorkMinMonths: bundle.workProfile.postStudyWorkMinMonths,
-          postStudyWorkMaxMonths: bundle.workProfile.postStudyWorkMaxMonths,
-          immigrationPathwayStrength:
-            bundle.workProfile.immigrationPathwayStrength,
-          visaSuccessBand: bundle.workProfile.visaSuccessBand,
-          visaSuccessPercentage: decimal(
-            bundle.workProfile.visaSuccessPercentage,
-          ),
-          visaType: bundle.workProfile.visaType,
-          visaFee: decimal(bundle.workProfile.visaFee),
-          /* The Country's currency leads, the same way it does for cost.
-           * Writes derive this now, so the two agree from the next save
-           * onwards -- reading it this way means a profile stored before that
-           * rule, or one saved while the Country had no currency yet, still
-           * prints the fee in the unit the page says the country uses. */
-          visaFeeCurrencyCode:
-            bundle.currencyCode ??
-            bundle.workProfile.visaFeeCurrencyCode ??
-            null,
-          visaProcessingTime: bundle.workProfile.visaProcessingTime,
-          visaInformation: bundle.workProfile.visaInformation,
-          partTimeHoursPerWeek: decimal(
-            bundle.workProfile.partTimeHoursPerWeek,
-          ),
-          postStudyWorkSummary: bundle.workProfile.postStudyWorkSummary,
-        }
-      : null;
-  const language =
-    bundle.languageRequirements && verified(bundle.languageRequirements)
-      ? {
-          ieltsRequirement: bundle.languageRequirements.ieltsRequirement,
-          ieltsMinScore: decimal(bundle.languageRequirements.ieltsMinScore),
-          languageWaiverAvailable:
-            bundle.languageRequirements.languageWaiverAvailable,
-        }
-      : null;
+  const cost = bundle.costProfile
+    ? {
+        /* Inherit the Country's currency where the profile has none, so the
+         * published figures always carry a unit. */
+        currencyCode:
+          bundle.costProfile.currencyCode ?? bundle.currencyCode ?? null,
+        currencySymbol:
+          bundle.costProfile.currencySymbol ?? bundle.currencySymbol ?? null,
+        tuitionMin: decimal(bundle.costProfile.tuitionMin),
+        tuitionMax: decimal(bundle.costProfile.tuitionMax),
+        tuitionPeriod: bundle.costProfile.tuitionPeriod,
+        budgetBand: bundle.costProfile.budgetBand,
+      }
+    : null;
+  const work = bundle.workProfile
+    ? {
+        partTimeAllowed: bundle.workProfile.partTimeAllowed,
+        postStudyWorkAvailable: bundle.workProfile.postStudyWorkAvailable,
+        postStudyWorkMinMonths: bundle.workProfile.postStudyWorkMinMonths,
+        postStudyWorkMaxMonths: bundle.workProfile.postStudyWorkMaxMonths,
+        immigrationPathwayStrength:
+          bundle.workProfile.immigrationPathwayStrength,
+        visaSuccessBand: bundle.workProfile.visaSuccessBand,
+        visaSuccessPercentage: decimal(
+          bundle.workProfile.visaSuccessPercentage,
+        ),
+        visaType: bundle.workProfile.visaType,
+        visaFee: decimal(bundle.workProfile.visaFee),
+        /* The Country's currency leads, the same way it does for cost.
+         * Writes derive this now, so the two agree from the next save
+         * onwards -- reading it this way means a profile stored before that
+         * rule, or one saved while the Country had no currency yet, still
+         * prints the fee in the unit the page says the country uses. */
+        visaFeeCurrencyCode:
+          bundle.currencyCode ?? bundle.workProfile.visaFeeCurrencyCode ?? null,
+        visaProcessingTime: bundle.workProfile.visaProcessingTime,
+        visaInformation: bundle.workProfile.visaInformation,
+        partTimeHoursPerWeek: decimal(bundle.workProfile.partTimeHoursPerWeek),
+        postStudyWorkSummary: bundle.workProfile.postStudyWorkSummary,
+      }
+    : null;
+  const language = bundle.languageRequirements
+    ? {
+        ieltsRequirement: bundle.languageRequirements.ieltsRequirement,
+        ieltsMinScore: decimal(bundle.languageRequirements.ieltsMinScore),
+        languageWaiverAvailable:
+          bundle.languageRequirements.languageWaiverAvailable,
+      }
+    : null;
   const intakes = bundle.intakes
     .filter(
       (item) =>
@@ -331,32 +323,24 @@ export function publicProfileSummary(bundle: ProfileBundle) {
       shortLabel: item.intake.shortLabel,
       availabilityStatus: item.availabilityStatus,
     }));
-  const statistics =
-    bundle.statistics && verified(bundle.statistics)
-      ? {
-          universitiesCount: bundle.statistics.universitiesCount,
-          coursesCount: bundle.statistics.coursesCount,
-          topRankedUniversitiesCount:
-            bundle.statistics.topRankedUniversitiesCount,
-        }
-      : null;
+  const statistics = bundle.statistics
+    ? {
+        universitiesCount: bundle.statistics.universitiesCount,
+        coursesCount: bundle.statistics.coursesCount,
+        topRankedUniversitiesCount:
+          bundle.statistics.topRankedUniversitiesCount,
+      }
+    : null;
   return { cost, work, language, intakes, statistics };
 }
 
 export function publicProfileDetail(bundle: ProfileBundle) {
   const summary = publicProfileSummary(bundle);
-  const cost =
-    bundle.costProfile && verified(bundle.costProfile)
-      ? serializeCost(bundle.costProfile)
-      : null;
-  const work =
-    bundle.workProfile && verified(bundle.workProfile)
-      ? serializeWork(bundle.workProfile)
-      : null;
-  const language =
-    bundle.languageRequirements && verified(bundle.languageRequirements)
-      ? serializeLanguage(bundle.languageRequirements)
-      : null;
+  const cost = bundle.costProfile ? serializeCost(bundle.costProfile) : null;
+  const work = bundle.workProfile ? serializeWork(bundle.workProfile) : null;
+  const language = bundle.languageRequirements
+    ? serializeLanguage(bundle.languageRequirements)
+    : null;
   const intakes = bundle.intakes
     .filter(
       (item) =>
@@ -366,10 +350,9 @@ export function publicProfileDetail(bundle: ProfileBundle) {
         ),
     )
     .map(serializeIntake);
-  const statistics =
-    bundle.statistics && verified(bundle.statistics)
-      ? serializeStatistics(bundle.statistics)
-      : null;
+  const statistics = bundle.statistics
+    ? serializeStatistics(bundle.statistics)
+    : null;
   return { ...summary, cost, work, language, intakes, statistics };
 }
 
@@ -377,18 +360,11 @@ export function publicProfileFilterValue(
   bundle: ProfileBundle,
   field: 'budgetBand' | 'visaSuccessBand' | 'pathwayStrength' | 'ieltsOptional',
 ) {
-  const cost =
-    bundle.costProfile && verified(bundle.costProfile)
-      ? bundle.costProfile
-      : null;
-  const work =
-    bundle.workProfile && verified(bundle.workProfile)
-      ? bundle.workProfile
-      : null;
-  const language =
-    bundle.languageRequirements && verified(bundle.languageRequirements)
-      ? bundle.languageRequirements
-      : null;
+  const cost = bundle.costProfile ? bundle.costProfile : null;
+  const work = bundle.workProfile ? bundle.workProfile : null;
+  const language = bundle.languageRequirements
+    ? bundle.languageRequirements
+    : null;
   if (field === 'budgetBand') return cost?.budgetBand ?? null;
   if (field === 'visaSuccessBand')
     return work?.visaSuccessBand && work.visaSuccessBand !== 'NOT_PUBLISHED'

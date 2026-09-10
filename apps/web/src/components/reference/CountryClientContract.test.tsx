@@ -57,6 +57,15 @@ function build(
         slug: 'australia',
         pageHeading: 'Study in Australia',
         shortDescription: 'Explore universities across Australia.',
+        /* The Country's twelve-month selection is the single intake source
+         * the page reads; the intake module's per-country rows serve Courses
+         * and Universities and no longer appear here. */
+        configuration: {
+          features: [],
+          acceptedTests: [],
+          intakeMonths: [2, 7],
+          postStudyWorkPermitMonths: null,
+        },
         tagline: 'Where research meets the coast',
         overview: 'A longer published overview.',
         capitalCity: 'Canberra',
@@ -322,9 +331,13 @@ describe('country detail — client contract', () => {
     expect(html).toContain('Duolingo');
   });
 
-  it('renders canonical intake records', () => {
+  it('renders the intakes the Country itself selected', () => {
     expect(html).toContain('February');
-    expect(html).toContain('Main intake.');
+    expect(html).toContain('July');
+    expect(html).toContain('Intakes in Australia');
+    /* The intake module's own record no longer reaches this page: one
+     * concept, one place to author it. */
+    expect(html).not.toContain('Main intake.');
   });
 
   /** Just the overview section's markup. Other blocks render their own

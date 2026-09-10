@@ -173,18 +173,55 @@ describe('country structured profiles (e2e)', () => {
     );
     expect(stale.status).toBe(409);
     expect(code(stale)).toBe('COUNTRY_COST_PROFILE_STALE_VERSION');
-    const invalidWork = await admin(
+    /* A band with nothing behind it used to be refused as
+     * PROFILE_SOURCE_REQUIRED. It saves now -- an author records what they
+     * know and it publishes as written -- while the rules about the value
+     * itself still hold, which the percentage below checks. */
+    /* Nothing has been written to this profile yet, so this reaches the
+     * value's own rules: a percentage over 100 is still impossible, cited or
+     * not. That is the validation the citation rule sat beside and which
+     * removing it must not have weakened. */
+    const impossible = await admin(
       'put',
       `/api/v1/admin/countries/${countryId}/profiles/work`,
-      { visaSuccessBand: 'HIGH' },
+      { visaSuccessPercentage: '150' },
     );
-    expect(invalidWork.status).toBe(400);
-    expect(code(invalidWork)).toBe('PROFILE_SOURCE_REQUIRED');
+    expect(impossible.status).toBe(400);
+    expect(code(impossible)).toBe('PROFILE_PERCENTAGE_INVALID');
+
+    const work = await admin(
+      'put',
+      `/api/v1/admin/countries/${countryId}/profiles/work`,
+      {
+        visaSuccessBand: 'MEDIUM',
+        immigrationPathwayStrength: 'MODERATE',
+        sourceReference: 'https://example.com/profile-work',
+        verifiedAt,
+      },
+    ).expect(200);
+
+    /* And a band with nothing behind it, which used to be refused as
+     * PROFILE_SOURCE_REQUIRED, now saves like any other recorded value. */
+    const uncitedWork = await admin(
+      'put',
+      `/api/v1/admin/countries/${countryId}/profiles/work`,
+      {
+        visaSuccessBand: 'HIGH',
+        immigrationPathwayStrength: 'MODERATE',
+        expectedUpdatedAt: record(work).updatedAt,
+      },
+    );
+    expect(uncitedWork.status).toBe(200);
+    expect(record(uncitedWork).visaSuccessBand).toBe('HIGH');
+
+    // Put the fixture back, so the discovery assertions further down still
+    // describe the profile this test set up.
     await admin('put', `/api/v1/admin/countries/${countryId}/profiles/work`, {
       visaSuccessBand: 'MEDIUM',
       immigrationPathwayStrength: 'MODERATE',
       sourceReference: 'https://example.com/profile-work',
       verifiedAt,
+      expectedUpdatedAt: record(uncitedWork).updatedAt,
     }).expect(200);
     const language = await admin(
       'put',

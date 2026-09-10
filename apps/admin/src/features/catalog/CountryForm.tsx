@@ -155,6 +155,25 @@ export function faqRowChanged(row: FaqRow, pristine: FaqRow | undefined) {
     row.displayOrder !== pristine.displayOrder
   );
 }
+type DocumentRow = { name: string; details: string; isRequired: boolean };
+
+/* Offered, not applied. These are the papers most destinations ask for, so an
+ * author starts from a click rather than a blank list -- but nothing is saved
+ * until they add it, and a destination that asks for something else adds its
+ * own. */
+const SUGGESTED_DOCUMENTS = [
+  "Passport",
+  "Academic transcripts / marksheets",
+  "Degree / qualification certificate",
+  "English language test result",
+  "Statement of Purpose (SOP)",
+  "Letter of Recommendation (LOR)",
+  "CV / Resume",
+  "Proof of funds / bank statement",
+  "Passport-size photographs",
+  "Visa / immigration documents",
+] as const;
+
 type CardRow = {
   id?: string;
   updatedAt?: string;
@@ -322,6 +341,21 @@ export function CountryForm({ countryId }: { countryId?: string }) {
     return rows;
   };
   const [cards, setCards] = useState<CardRow[]>([]);
+  const [documents, setDocuments] = useState<DocumentRow[]>([]);
+  const addDocument = (name: string) => {
+    setDocuments((rows) => [...rows, { name, details: "", isRequired: true }]);
+    setDirty(true);
+  };
+  const updateDocument = (index: number, patch: Partial<DocumentRow>) => {
+    setDocuments((rows) =>
+      rows.map((row, i) => (i === index ? { ...row, ...patch } : row)),
+    );
+    setDirty(true);
+  };
+  const removeDocument = (index: number) => {
+    setDocuments((rows) => rows.filter((_, i) => i !== index));
+    setDirty(true);
+  };
   const [removedSections, setRemovedSections] = useState<SectionRow[]>([]);
   const [removedFaqs, setRemovedFaqs] = useState<FaqRow[]>([]);
   const [removedCards, setRemovedCards] = useState<CardRow[]>([]);
@@ -445,6 +479,13 @@ export function CountryForm({ countryId }: { countryId?: string }) {
           isFeatured: country.featured,
           displayOrder: String(country.displayOrder),
         });
+        setDocuments(
+          (country.documents ?? []).map((row) => ({
+            name: row.name,
+            details: row.details ?? "",
+            isRequired: row.isRequired,
+          })),
+        );
         setSubjectIds(country.subjectIds ?? []);
         setTagIds(country.tagIds ?? []);
         setConfiguration({
@@ -894,6 +935,15 @@ export function CountryForm({ countryId }: { countryId?: string }) {
         tagIds,
         isFeatured: core.isFeatured,
         displayOrder: Number(core.displayOrder) || 0,
+        /* Edited as one list on the Country itself, so it travels with the
+         * record rather than through a save of its own. */
+        documents: documents
+          .filter((row) => row.name.trim())
+          .map((row) => ({
+            name: row.name.trim(),
+            details: row.details.trim() || undefined,
+            isRequired: row.isRequired,
+          })),
         featureCodes: configuration.featureCodes,
         acceptedTests: configuration.acceptedTests,
         intakeMonths: configuration.intakeMonths,
@@ -1276,6 +1326,89 @@ export function CountryForm({ countryId }: { countryId?: string }) {
                 disabled={!record}
               />
             </div>
+          </div>
+        </Card>
+        <Card
+          eyebrow="Admissions"
+          title="Documents required to study here"
+          description="What a student needs in hand for this destination. Nothing is added until you add it, and a destination that asks for something else can have its own."
+        >
+          <div className="space-y-4">
+            <div>
+              <p className="text-sm font-semibold text-[#344054]">Suggestions</p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {SUGGESTED_DOCUMENTS.filter(
+                  (name) => !documents.some((row) => row.name === name),
+                ).map((name) => (
+                  <button
+                    key={name}
+                    type="button"
+                    onClick={() => addDocument(name)}
+                    className="rounded-full border border-[#D9E0EA] px-3 py-1.5 text-xs font-semibold text-[#344054]"
+                  >
+                    + {name}
+                  </button>
+                ))}
+              </div>
+            </div>
+            {documents.length ? (
+              documents.map((row, index) => (
+                <div
+                  key={index}
+                  className="rounded-2xl border border-[#E8ECF3] bg-[#FBFCFE] p-5"
+                >
+                  <div className="flex justify-between">
+                    <h4 className="font-semibold">Document {index + 1}</h4>
+                    <button
+                      type="button"
+                      onClick={() => removeDocument(index)}
+                      className="text-sm font-semibold text-[#B42318]"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                  <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                    <Input
+                      label="Document name"
+                      value={row.name}
+                      onChange={(value) => updateDocument(index, { name: value })}
+                    />
+                    <BooleanField
+                      label="Required"
+                      checked={row.isRequired}
+                      onChange={(checked) =>
+                        updateDocument(index, { isRequired: checked })
+                      }
+                    />
+                    <div className="sm:col-span-2">
+                      <RichTextEditor
+                        label={`Details ${index + 1}`}
+                        ariaLabel={`Details ${index + 1}`}
+                        value={row.details}
+                        onChange={(value) =>
+                          updateDocument(index, { details: value })
+                        }
+                        allowedVariables={variablesForContext("country")}
+                        enableImages={false}
+                        minHeight="min-h-20"
+                      />
+                    </div>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <p className="text-sm text-[#667085]">
+                No documents listed. The public page leaves the section out
+                until you add one.
+              </p>
+            )}
+            <button
+              type="button"
+              onClick={() => addDocument("")}
+              className="rounded-xl border border-[#D9E0EA] px-4 py-2 text-sm font-semibold"
+            >
+              + Add document
+            </button>
           </div>
         </Card>
         {/* Rendered from the start, with or without a country row. Its cards

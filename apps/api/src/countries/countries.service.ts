@@ -51,6 +51,16 @@ const COUNTRY_INCLUDE = {
   heroMedia: {
     select: { publicUrl: true, altText: true, status: true, deletedAt: true },
   },
+  documents: {
+    select: {
+      id: true,
+      name: true,
+      details: true,
+      isRequired: true,
+      displayOrder: true,
+    },
+    orderBy: { displayOrder: 'asc' as const },
+  },
   subjectMaps: {
     include: {
       subject: {
@@ -141,6 +151,13 @@ type CountryRecord = {
     status: string;
     deletedAt: Date | null;
   } | null;
+  documents: Array<{
+    id: string;
+    name: string;
+    details: string | null;
+    isRequired: boolean;
+    displayOrder: number;
+  }>;
   subjectMaps: Array<{
     subjectId: string;
     displayOrder: number;
@@ -207,6 +224,14 @@ export interface CountryPublicDto {
     postStudyWorkPermitMonths: number | null;
   };
   currency: { code: string; symbol: string | null } | null;
+  /** What a student needs in hand to study here. Empty when the Admin has not
+   * listed any, so the public page can leave the section out entirely. */
+  documents: Array<{
+    id: string;
+    name: string;
+    details: string | null;
+    isRequired: boolean;
+  }>;
   subjects: Array<{ id: string; name: string; slug: string }>;
   /* Tags are deliberately absent: they are an Admin, import and filter
    * taxonomy, and never part of what the public site is told about a country.
@@ -355,11 +380,9 @@ export class CountriesService {
         }),
         this.prisma.countryCostProfile.groupBy({
           by: ['currencyCode'],
-          where: {
-            ...published,
-            sourceReference: { not: null },
-            verifiedAt: { not: null },
-          },
+          /* A currency a destination publishes in is an option whether or not
+           * anyone cited it, for the same reason the bands above are. */
+          where: published,
           _count: { currencyCode: true },
         }),
         /* Features and tests are stored as JSON on the country itself, so they
@@ -748,6 +771,17 @@ export class CountriesService {
                   })),
                 }
               : undefined,
+            documents: dto.documents
+              ? {
+                  create: dto.documents.map((row, displayOrder) => ({
+                    name: row.name.trim(),
+                    details: sanitizeRichText(row.details?.trim()) as
+                      string | undefined,
+                    isRequired: row.isRequired ?? true,
+                    displayOrder,
+                  })),
+                }
+              : undefined,
             tagMaps: dto.tagIds
               ? { create: dto.tagIds.map((tagId) => ({ tagId })) }
               : undefined,
@@ -870,6 +904,24 @@ export class CountriesService {
               data: dto.subjectIds.map((subjectId, displayOrder) => ({
                 countryId: id,
                 subjectId,
+                displayOrder,
+              })),
+            });
+        }
+        /* Edited as one list, so a supplied array replaces the set and an
+         * omitted key leaves it alone -- the same contract the two above
+         * follow, and what keeps an importer that never mentions documents
+         * from clearing them. */
+        if (dto.documents !== undefined) {
+          await tx.countryDocument.deleteMany({ where: { countryId: id } });
+          if (dto.documents.length)
+            await tx.countryDocument.createMany({
+              data: dto.documents.map((row, displayOrder) => ({
+                countryId: id,
+                name: row.name.trim(),
+                details: sanitizeRichText(row.details?.trim()) as
+                  string | undefined,
+                isRequired: row.isRequired ?? true,
                 displayOrder,
               })),
             });
@@ -1118,10 +1170,11 @@ export class CountriesService {
      * instead of removing the destination from the answer entirely. */
     const work: Prisma.CountryWorkProfileWhereInput[] = [];
     const cost: Prisma.CountryCostProfileWhereInput[] = [];
-    const verified = {
-      sourceReference: { not: null },
-      verifiedAt: { not: null },
-    };
+    /* Verification is no longer what decides whether a value counts. A band an
+     * author published is filterable on, cited or not -- leaving the gate here
+     * would have published a "Budget friendly" badge that the Budget filter
+     * then refused to match. */
+    const verified = {};
 
     if (query.visaSuccessBand)
       work.push({ ...verified, visaSuccessBand: query.visaSuccessBand });
@@ -1639,6 +1692,14 @@ export class CountriesService {
       currency: record.currencyCode
         ? { code: record.currencyCode, symbol: record.currencySymbol }
         : null,
+      documents: [...record.documents]
+        .sort((a, b) => a.displayOrder - b.displayOrder)
+        .map((row) => ({
+          id: row.id,
+          name: row.name,
+          details: row.details,
+          isRequired: row.isRequired,
+        })),
       subjects: record.subjectMaps
         .filter(
           ({ subject }) => subject.status === 'PUBLISHED' && !subject.deletedAt,

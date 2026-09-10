@@ -354,13 +354,21 @@ describe('country profile client contract (e2e)', () => {
     expect(statistics?.universitiesCount).toBe(42);
   });
 
-  it('refuses a manual count that names no source', async () => {
+  /* This used to be refused: a manual count had to name a source and a
+   * verification date before it could be stored. Country is a CMS record now
+   * -- an author records the number they have and it saves and publishes as
+   * written, with the citation printed when there is one. */
+  it('accepts a manual count that names no source', async () => {
     const response = await put('statistics', {
       sourceMode: 'MANUAL',
       universitiesCount: 77,
       sourceReference: '',
     });
-    expect(response.status).toBeGreaterThanOrEqual(400);
+    expect(response.status).toBe(200);
+
+    const stored = group(await profiles(), 'statistics');
+    expect(stored.universitiesCount).toBe(77);
+    expect(stored.sourceMode).toBe('MANUAL');
   });
 
   it('ignores an unverified stored count and falls back to the live one', async () => {

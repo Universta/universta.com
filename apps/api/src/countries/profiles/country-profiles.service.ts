@@ -768,6 +768,12 @@ export class CountryProfilesService {
       'visaSuccessPercentage',
       3,
     );
+    /* A source reference and a verification date are no longer required to
+     * publish a profile value. Country is a CMS record: an author records what
+     * they know, and a claim without a citation is published as written rather
+     * than refused. Both columns remain and are still stored when supplied --
+     * the public page prints "Figures verified <date>" from them -- they are
+     * simply not a gate any more, here or on the way out. */
     const visaFee = decimal(dto.visaFee, 2, 'visaFee', 10);
     if (
       dto.visaFeeCurrencyCode !== undefined &&
@@ -802,24 +808,6 @@ export class CountryProfilesService {
     const verification = verifiedAt(
       (dto as unknown as { verifiedAt?: string }).verifiedAt,
     );
-    if (
-      ((dto.visaSuccessBand && dto.visaSuccessBand !== 'NOT_PUBLISHED') ||
-        percentage) &&
-      (!sourceReference || !verification)
-    )
-      throw bad(
-        'PROFILE_SOURCE_REQUIRED',
-        'Published visa claims require sourceReference and verifiedAt',
-      );
-    if (
-      dto.immigrationPathwayStrength &&
-      dto.immigrationPathwayStrength !== 'NOT_PUBLISHED' &&
-      (!sourceReference || !verification)
-    )
-      throw bad(
-        'PROFILE_SOURCE_REQUIRED',
-        'Published pathway claims require sourceReference and verifiedAt',
-      );
     return {
       partTimeAllowed: dto.partTimeAllowed,
       partTimeHoursPerWeek: weekly,
@@ -916,11 +904,6 @@ export class CountryProfilesService {
     const verification = verifiedAt(
       (dto as unknown as { verifiedAt?: string }).verifiedAt,
     );
-    if (dto.languageWaiverAvailable && (!sourceReference || !verification))
-      throw bad(
-        'PROFILE_SOURCE_REQUIRED',
-        'A published language waiver requires sourceReference and verifiedAt',
-      );
     return {
       ...data,
       ieltsRequirement: dto.ieltsRequirement,
@@ -996,14 +979,6 @@ export class CountryProfilesService {
     data.verifiedAt = verifiedAt(
       (dto as unknown as { verifiedAt?: string }).verifiedAt,
     );
-    if (
-      data.sourceMode !== 'DERIVED' &&
-      (!data.sourceReference || !data.verifiedAt)
-    )
-      throw bad(
-        'PROFILE_SOURCE_REQUIRED',
-        'Manual, imported, and official statistics require a source and verification date',
-      );
     return data;
   }
 }
