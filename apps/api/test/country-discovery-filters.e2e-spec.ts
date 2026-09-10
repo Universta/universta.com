@@ -473,29 +473,31 @@ describe('public country discovery filters (e2e)', () => {
    * act on has to be sourced; a plain recorded fact speaks for itself. Getting
    * this wrong is invisible in a result set -- destinations simply go missing
    * -- so each side is pinned separately. */
-  it('requires a verified source for an editorial rating', async () => {
-    // `unverified` publishes BUDGET_FRIENDLY with no source behind it.
-    expect(await names('budgetBand=BUDGET_FRIENDLY')).toEqual([`${tag}-base`]);
-    expect(await names('budgetBand=BUDGET_FRIENDLY')).not.toContain(
-      `${tag}-unverified`,
+  /* A rating used to need a source before a filter would match it, so
+   * `unverified` -- which publishes BUDGET_FRIENDLY and HIGH with nothing
+   * behind them -- was left out of both results. A Country is a CMS record
+   * now: what an author publishes is published, and a filter that refused to
+   * match a band the page displays was answering a different question from
+   * the one the page had already answered. */
+  it('matches a rating an author published, cited or not', async () => {
+    expect((await names('budgetBand=BUDGET_FRIENDLY')).sort()).toEqual(
+      [`${tag}-base`, `${tag}-unverified`].sort(),
     );
-    // Same for the visa-success rating it also publishes unsourced.
-    expect(await names('visaSuccessBand=HIGH')).not.toContain(
-      `${tag}-unverified`,
-    );
+    expect(await names('visaSuccessBand=HIGH')).toContain(`${tag}-unverified`);
   });
 
-  it('does not let one filter impose its verification rule on another', async () => {
-    // Currency and amounts are facts. Asking for them must not start demanding
-    // a verified source just because a rating filter on the same request does.
+  /* The rule this protected -- one filter's verification requirement leaking
+   * onto another on the same request -- cannot arise now that no filter has
+   * one. What still has to hold is that combining filters narrows on what each
+   * one actually asks about, and nothing else. */
+  it('narrows on what each filter asks about, and nothing else', async () => {
     expect((await names('currency=EUR')).sort()).toEqual(
       [`${tag}-base`, `${tag}-second`, `${tag}-unverified`].sort(),
     );
-    // Combined with a rating, only the rating leg narrows on verification.
-    expect(await names('currency=EUR&budgetBand=BUDGET_FRIENDLY')).toEqual([
-      `${tag}-base`,
-    ]);
-    // And an unrelated fact filter still sees the unverified destination.
+    // Both EUR destinations publish the band, and `second` does not.
+    expect(
+      (await names('currency=EUR&budgetBand=BUDGET_FRIENDLY')).sort(),
+    ).toEqual([`${tag}-base`, `${tag}-unverified`].sort());
     expect(await names('currency=EUR&applicationFee=none')).toContain(
       `${tag}-unverified`,
     );
