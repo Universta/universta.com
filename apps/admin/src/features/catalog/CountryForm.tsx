@@ -1281,7 +1281,14 @@ export function CountryForm({ countryId }: { countryId?: string }) {
         {/* Rendered from the start, with or without a country row. Its cards
           * hold their values locally until the first save creates the parent,
           * and `persistDrafts` below writes them then. */}
-        <CountryProfilesEditor ref={profilesRef} countryId={record?.id} />
+        {/* The visa fee is quoted in the Country's currency, so the profile
+          * card is told which one that is rather than asking for it again --
+          * and it follows the selector above as soon as it changes. */}
+        <CountryProfilesEditor
+          ref={profilesRef}
+          countryId={record?.id}
+          currencyCode={core.currencyCode}
+        />
         <Card
           eyebrow="Editorial"
           title="Content sections"

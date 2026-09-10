@@ -210,3 +210,57 @@ describe('cost currency inheritance', () => {
     expect(result.cost?.currencySymbol).toBeNull();
   });
 });
+
+/**
+ * Reading follows the same rule as writing: the fee is printed in the unit the
+ * rest of the page says the country uses. Writes derive it from the next save
+ * onwards; this is what makes a profile stored before that rule agree too.
+ */
+describe('visa fee currency inheritance', () => {
+  const workProfile = {
+    visaFee: '50',
+    visaFeeCurrencyCode: null,
+    partTimeAllowed: true,
+    postStudyWorkAvailable: true,
+    sourceReference: 'https://example.org/work',
+    verifiedAt: new Date('2026-01-02T00:00:00.000Z'),
+  } as Record<string, unknown>;
+
+  const bundle = (overrides: Record<string, unknown>) =>
+    ({
+      costProfile: null,
+      workProfile,
+      languageRequirements: null,
+      intakes: [],
+      statistics: null,
+      currencyCode: null,
+      currencySymbol: null,
+      ...overrides,
+    }) as never;
+
+  it('prints the fee in the Country currency', () => {
+    expect(
+      publicProfileSummary(bundle({ currencyCode: 'EUR' })).work
+        ?.visaFeeCurrencyCode,
+    ).toBe('EUR');
+  });
+
+  it('prefers the Country currency over a stored code that disagrees', () => {
+    expect(
+      publicProfileSummary(
+        bundle({
+          currencyCode: 'EUR',
+          workProfile: { ...workProfile, visaFeeCurrencyCode: 'QQQ' },
+        }),
+      ).work?.visaFeeCurrencyCode,
+    ).toBe('EUR');
+  });
+
+  it('falls back to the stored code while the Country has no currency', () => {
+    expect(
+      publicProfileSummary(
+        bundle({ workProfile: { ...workProfile, visaFeeCurrencyCode: 'GBP' } }),
+      ).work?.visaFeeCurrencyCode,
+    ).toBe('GBP');
+  });
+});

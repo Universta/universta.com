@@ -347,7 +347,12 @@ export class CountryProfilesService {
       dto.expectedUpdatedAt,
       'COUNTRY_WORK_PROFILE_STALE_VERSION',
     );
-    const data = this.workData(dto);
+    /* A visa fee is quoted in the Country's own currency. The card stopped
+     * asking for a second copy, and this is what makes that true of the stored
+     * value rather than only of the form: the code is taken from the Country,
+     * so a client that sends a different one cannot create a mismatch. */
+    const country = await this.country(countryId);
+    const data = this.workData(dto, { code: country.currencyCode });
     const row = current
       ? await this.prisma.countryWorkProfile.update({
           where: { id: current.id },
@@ -741,7 +746,10 @@ export class CountryProfilesService {
     return data;
   }
 
-  private workData(dto: WorkProfileDto): Record<string, unknown> {
+  private workData(
+    dto: WorkProfileDto,
+    inherited: { code: string | null },
+  ): Record<string, unknown> {
     const weekly = decimal(
       dto.partTimeHoursPerWeek,
       2,
@@ -828,7 +836,14 @@ export class CountryProfilesService {
       visaInformation: richText(dto.visaInformation),
       visaType: optionalText(dto.visaType),
       visaFee,
-      visaFeeCurrencyCode: optionalText(dto.visaFeeCurrencyCode)?.toUpperCase(),
+      /* The Country's currency wins whenever it has one. When it has none
+       * there is nothing to inherit, so whatever the caller sent stands -- and
+       * if that is nothing either, the key is undefined and Prisma leaves the
+       * stored value alone, which is what keeps a legacy code from before this
+       * rule from being wiped. */
+      visaFeeCurrencyCode:
+        inherited.code?.trim().toUpperCase() ||
+        optionalText(dto.visaFeeCurrencyCode)?.toUpperCase(),
       visaProcessingTime: optionalText(dto.visaProcessingTime),
       proofOfFundsSummary: richText(dto.proofOfFundsSummary),
       sourceReference,

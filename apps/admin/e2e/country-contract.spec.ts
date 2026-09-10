@@ -751,7 +751,12 @@ test.describe.serial('country client contract, end to end', () => {
     await field(work, 'Visa type').fill('Acceptance student permit');
     await field(work, 'Visa processing time').fill('5 to 7 weeks');
     await field(work, 'Visa fee').fill('86');
-    await work.getByLabel(/^Visa fee currency/).fill('QQQ');
+    /* The fee's currency is the Country's, shown here rather than asked for:
+     * the field is read-only and already carries the code chosen in the
+     * identity section, so the two cannot disagree. */
+    const feeCurrency = work.getByLabel(/^Visa fee currency/);
+    await expect(feeCurrency).toHaveValue('EUR');
+    await expect(feeCurrency).toHaveAttribute('readonly', '');
     await field(work, 'Part-time work allowed during study').check();
     await field(work, 'Work hours per week').fill('21');
     await field(work, 'Post-study work available').check();
@@ -761,6 +766,11 @@ test.describe.serial('country client contract, end to end', () => {
     await field(work, 'Verified on').fill('2026-01-02');
     await work.getByRole('button', { name: 'Save work and visa' }).click();
     await saved();
+    /* Stored as the Country's currency, not as anything typed on this card --
+     * the API derives it, so a client cannot author a mismatch either. */
+    expect(
+      (await storedProfiles(countryId)).work?.visaFeeCurrencyCode,
+    ).toBe('EUR');
 
     const language = card(page, 'English requirements');
     await choice(language, 'IELTS requirement').selectOption('REQUIRED');
@@ -786,6 +796,7 @@ test.describe.serial('country client contract, end to end', () => {
     expect(String(stored.cost?.applicationFeeMin)).toBe('61');
     expect(stored.work?.visaType).toBe('Acceptance student permit');
     expect(String(stored.work?.visaFee)).toBe('86');
+    expect(stored.work?.visaFeeCurrencyCode).toBe('EUR');
     expect(stored.work?.visaProcessingTime).toBe('5 to 7 weeks');
     expect(String(stored.work?.partTimeHoursPerWeek)).toBe('21');
     expect(stored.work?.postStudyWorkMaxMonths).toBe(25);
@@ -1383,6 +1394,11 @@ test.describe.serial('country client contract, end to end', () => {
     /* The editor picks a currency from the linked selectors now, so the
      * country carries a real ISO code rather than a placeholder. */
     expect((data.currency as { code: string }).code).toBe('EUR');
+    /* The visa fee is published in the Country's currency, so the page never
+     * prints a fee in one unit beside a country stated in another. */
+    expect(
+      ((data.profiles as Record<string, Row>).work ?? {}).visaFeeCurrencyCode,
+    ).toBe('EUR');
     expect((data.currency as { symbol: string }).symbol).toBe('\u20AC');
     expect((data.subjects as unknown[]).length).toBeGreaterThan(0);
 

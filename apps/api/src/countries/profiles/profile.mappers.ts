@@ -287,7 +287,15 @@ export function publicProfileSummary(bundle: ProfileBundle) {
           ),
           visaType: bundle.workProfile.visaType,
           visaFee: decimal(bundle.workProfile.visaFee),
-          visaFeeCurrencyCode: bundle.workProfile.visaFeeCurrencyCode,
+          /* The Country's currency leads, the same way it does for cost.
+           * Writes derive this now, so the two agree from the next save
+           * onwards -- reading it this way means a profile stored before that
+           * rule, or one saved while the Country had no currency yet, still
+           * prints the fee in the unit the page says the country uses. */
+          visaFeeCurrencyCode:
+            bundle.currencyCode ??
+            bundle.workProfile.visaFeeCurrencyCode ??
+            null,
           visaProcessingTime: bundle.workProfile.visaProcessingTime,
           visaInformation: bundle.workProfile.visaInformation,
           partTimeHoursPerWeek: decimal(
