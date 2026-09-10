@@ -181,7 +181,7 @@ function CountryTemplateCard({ country }: { country: Country }) {
           <div className="sub">
             {statistics?.universitiesCount != null
               ? `${statistics.universitiesCount.toLocaleString('en-US')} universities`
-              : country.continent.name}
+              : (country.continent?.name ?? "—")}
           </div>
         </div>
       </div>
@@ -536,7 +536,7 @@ export function ApprovedCountriesListing({
                         >
                           <span>{flagFor(country)}</span>
                           <span>{country.name}</span>
-                          <small>{country.continent.name}</small>
+                          <small>{country.continent?.name ?? "—"}</small>
                         </button>
                       </li>
                     ))}
@@ -600,7 +600,7 @@ export function ApprovedCountriesListing({
                   onClick={() => navigate({ region: continent.slug, page: undefined })}
                   key={continent.id}
                 >
-                  {continent.name} <span className="n">{countries.filter((item) => item.continent.id === continent.id).length}</span>
+                  {continent.name} <span className="n">{countries.filter((item) => item.continent?.id === continent.id).length}</span>
                 </button>
               ))}
             </div>

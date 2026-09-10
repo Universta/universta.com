@@ -3,6 +3,7 @@ import Link from 'next/link';
 /* eslint-disable @next/next/no-img-element */
 import type { CountryPage } from '@/lib/countries';
 import { SiteFooter, SiteHeader } from './SiteChrome';
+import { RichText } from '../phase1/RichText';
 import { CountryEditorialSections, editorialNavItems } from './CountryEditorialSections';
 import { CountryJumpNav } from './CountryJumpNav';
 import { CountryStructuredSections, structuredNavItems } from './CountryStructuredSections';
@@ -22,9 +23,13 @@ export function CountryPageView({ page }: { page: CountryPage }) {
             <Link className="back-link" href="/countries">
               ← All destinations
             </Link>
-            <p className="eyebrow">Study destination · {country.continent.name}</p>
+            <p className="eyebrow">
+              {country.continent ? `Study destination · ${country.continent.name}` : "Study destination"}
+            </p>
             <h1>{country.pageHeading || `Study in ${country.name}`}</h1>
-            <p className="hero-copy">{country.shortDescription}</p>
+            {country.shortDescription ? (
+              <RichText className="hero-copy" value={country.shortDescription} />
+            ) : null}
             <Link className="button" href={consultantHref}>
               Find consultants
             </Link>
@@ -38,7 +43,7 @@ export function CountryPageView({ page }: { page: CountryPage }) {
               </div>
             )}
             <span>{country.name}</span>
-            <small>{country.continent.name}</small>
+            <small>{country.continent?.name ?? "—"}</small>
           </div>
         </div>
       </section>
@@ -96,7 +101,7 @@ export function CountryPageView({ page }: { page: CountryPage }) {
               <article key={card.id} className="consultant-card">
                 {card.featuredMedia ? <img className="consultant-media" src={card.featuredMedia.url} alt={card.featuredMedia.alt || card.title} /> : card.iconMedia ? <img className="consultant-icon" src={card.iconMedia.url} alt={card.iconMedia.alt || ''} /> : null}
                 <h3>{card.title}</h3>
-                <p>{card.shortDescription}</p>
+                <RichText value={card.shortDescription} />
                 <Link href={card.ctaUrl && (/^\//.test(card.ctaUrl) || /^#[a-zA-Z0-9_-]+$/.test(card.ctaUrl) || /^https:\/\//.test(card.ctaUrl)) ? card.ctaUrl : consultantHref}>{card.ctaLabel} →</Link>
               </article>
             ))}

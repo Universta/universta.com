@@ -7,6 +7,14 @@ export default defineConfig({
   resolve: {
     dedupe: ['react', 'react-dom'],
     alias: {
+      /* Jodit drives a real contenteditable and never finishes initialising
+       * under jsdom, so any test that renders the editor simply times out. Its
+       * own behaviour -- selection, lists, undo -- belongs to the library and
+       * is verified in a real browser; the stub keeps everything above the
+       * editor (the shared wrapper, the Country forms) under test for real. */
+      '@/features/shared/JoditRichText': fileURLToPath(
+        new URL('./src/test/jodit-stub.tsx', import.meta.url),
+      ),
       '@': fileURLToPath(new URL('./src', import.meta.url)),
       'server-only': fileURLToPath(new URL('./src/test/server-only.ts', import.meta.url)),
     },

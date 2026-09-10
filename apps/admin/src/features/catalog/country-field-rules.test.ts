@@ -27,7 +27,7 @@ describe('country field rules', () => {
       'ISO3 must be exactly 3 letters, like MLT.',
     );
     expect(countryFieldRules.iso2Code('MLT')).toBe(
-      'ISO2 must be exactly 2 letters, like MT.',
+      'ISO must be exactly 2 letters, like MT.',
     );
     expect(countryFieldRules.currencyCode('EURO')).toContain('3 letters');
     expect(countryFieldRules.slug('Not A Slug')).toContain('lowercase');
@@ -35,13 +35,12 @@ describe('country field rules', () => {
     expect(countryFieldRules.displayOrder('abc')).toContain('0 to 999999');
   });
 
-  it('reports a missing required field by name', () => {
+  it('asks only for the country name, because everything else is content', () => {
     expect(countryFieldRules.name('')).toBe('Country name is required.');
-    expect(countryFieldRules.slug('   ')).toBe('Slug is required.');
-    expect(countryFieldRules.pageHeading('')).toBe('Page heading is required.');
-    expect(countryFieldRules.shortDescription('')).toBe(
-      'Short description is required.',
-    );
+    /* Country is edited like a CMS record: a country somebody has only just
+     * named must still save, so nothing below blocks that. */
+    for (const field of ['slug', 'pageHeading', 'shortDescription', 'continentId'])
+      expect(countryFieldRules[field]('')).toBeNull();
   });
 
   it('leaves an optional field alone until it holds something', () => {

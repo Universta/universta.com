@@ -1,12 +1,20 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useState,
+} from "react";
 import {
   getCountryProfiles,
   listIntakeOptions,
   putCountryProfile,
 } from "./catalog-client";
 import type { CountryProfileBundle, IntakeOption } from "./catalog.types";
+import { RichTextEditor } from "@/features/shared/RichTextEditor";
+import { variablesForContext } from "@/features/shared/variable-autocomplete";
 
 /**
  * Country-owned profile editing.
@@ -32,9 +40,11 @@ const inputClass =
   "mt-1 w-full rounded-lg border border-[#D9E0EA] px-3 py-2 text-sm outline-none focus:border-[#1657CF]";
 
 const COST_PERIODS = ["PER_YEAR", "PER_MONTH", "PER_TERM", "ONE_TIME"];
-/** Must stay identical to BUDGET_BANDS in the API's profile.constants.ts: the
- * public Budget filter matches on these stored values exactly. */
-const BUDGET_BANDS = ["BUDGET_FRIENDLY", "MID_RANGE", "PREMIUM"];
+/* BUDGET_BANDS lived here for the Budget band selector, which has left the cost
+ * card. The column, the API field and the public Budget filter are all
+ * unchanged -- only the editor control is gone. */
+/** Mirrors PATHWAY_STRENGTHS in the API's profile.constants.ts. */
+const PATHWAY_STRENGTHS = ["NOT_PUBLISHED", "LIMITED", "MODERATE", "STRONG"];
 const LANGUAGE_REQUIREMENTS = [
   "REQUIRED",
   "OPTIONAL",
@@ -56,7 +66,14 @@ const MONTHS = [
 type FieldSpec = {
   key: string;
   label: string;
-  kind?: "text" | "number" | "date" | "checkbox" | "textarea" | "select";
+  kind?:
+    | "text"
+    | "number"
+    | "date"
+    | "checkbox"
+    | "textarea"
+    | "select"
+    | "richtext";
   options?: string[];
   hint?: string;
   wide?: boolean;
@@ -134,7 +151,26 @@ function clearedChoices(draft: Draft): Draft {
   return next;
 }
 
-export function CountryProfilesEditor({ countryId }: { countryId: string }) {
+/** What the parent form calls once it has created the Country row, so a
+ * profile or intake typed before the first save is written rather than lost. */
+export type CountryProfilesHandle = {
+  persistDrafts: (countryId: string) => Promise<void>;
+};
+
+/**
+ * Cost, visa, English, statistics and intakes.
+ *
+ * These are child records of a Country and each one saves on its own, so the
+ * whole editor used to be replaced by "Save this Country first" until the row
+ * existed -- which meant an author creating a country could not even see what
+ * they would eventually be asked for. The cards render from the start now and
+ * hold their values locally; the parent flushes them through `persistDrafts`
+ * as soon as it has an id, and nothing fake is written in the meantime.
+ */
+export const CountryProfilesEditor = forwardRef<
+  CountryProfilesHandle,
+  { countryId?: string }
+>(function CountryProfilesEditor({ countryId }, ref) {
   const [bundle, setBundle] = useState<CountryProfileBundle | null>(null);
   const [intakeOptions, setIntakeOptions] = useState<IntakeOption[]>([]);
   const [cost, setCost] = useState<Draft>({});
@@ -158,9 +194,14 @@ export function CountryProfilesEditor({ countryId }: { countryId: string }) {
   }, []);
 
   useEffect(() => {
-    void Promise.all([getCountryProfiles(countryId), listIntakeOptions()])
+    /* Intake options are catalogue-wide, so they load either way. The
+     * country's own profiles only exist once the country does. */
+    void Promise.all([
+      countryId ? getCountryProfiles(countryId) : Promise.resolve(null),
+      listIntakeOptions(),
+    ])
       .then(([profiles, options]) => {
-        seed(profiles.data);
+        if (profiles) seed(profiles.data);
         setIntakeOptions(options.data);
       })
       .catch((cause: unknown) =>
@@ -172,7 +213,62 @@ export function CountryProfilesEditor({ countryId }: { countryId: string }) {
       );
   }, [countryId, seed]);
 
+  /** What a card would send. Shared by the per-card Save button and by the
+   * flush the parent runs after it first creates the Country, so a draft typed
+   * before there was an id is written exactly as one typed after it. */
+  const payloadFor = useCallback(
+    (section: Section | "intakes"): Record<string, unknown> => {
+      if (section === "intakes")
+        return {
+          // The intakes version token is the newest CountryIntake row, not
+          // the country itself, and must be omitted entirely while none
+          // exist -- sending one against no rows is treated as stale.
+          expectedUpdatedAt: intakeVersion(bundle),
+          intakes: intakes.map((row, displayOrder) => ({
+            intakeId: row.intakeId,
+            isMajor: row.isMajor,
+            availabilityStatus: row.availabilityStatus,
+            applicationOpeningMonth: row.applicationOpeningMonth || undefined,
+            applicationDeadlineMonth: row.applicationDeadlineMonth || undefined,
+            applicationOpeningNote: row.applicationOpeningNote || undefined,
+            applicationDeadlineNote: row.applicationDeadlineNote || undefined,
+            notes: row.notes || undefined,
+            displayOrder,
+          })),
+        };
+      const drafts: Record<Section, Draft> = { cost, work, language, statistics };
+      return {
+        ...clearedChoices(drafts[section]),
+        expectedUpdatedAt: drafts[section].updatedAt as string | undefined,
+      };
+    },
+    [bundle, cost, intakes, language, statistics, work],
+  );
+
+  /* A country created with profile drafts already filled in writes them
+   * immediately afterwards, in the same order the cards appear. Untouched
+   * cards are skipped rather than written as empty rows -- an author who never
+   * opened the Cost card should not end up with a cost profile. */
+  useImperativeHandle(
+    ref,
+    () => ({
+      persistDrafts: async (newCountryId: string) => {
+        const pending: Array<Section | "intakes"> = [];
+        if (populated(cost)) pending.push("cost");
+        if (populated(work)) pending.push("work");
+        if (populated(language)) pending.push("language");
+        if (populated(statistics, { sourceMode: "DERIVED" }))
+          pending.push("statistics");
+        if (intakes.length) pending.push("intakes");
+        for (const section of pending)
+          await putCountryProfile(newCountryId, section, payloadFor(section));
+      },
+    }),
+    [cost, intakes, language, payloadFor, statistics, work],
+  );
+
   async function save(section: Section | "intakes") {
+    if (!countryId) return;
     setMessage("");
     setError("");
     setSaving(section);
@@ -209,42 +305,7 @@ export function CountryProfilesEditor({ countryId }: { countryId: string }) {
           }
         }
       }
-      const drafts: Record<Section, Draft> = {
-        cost,
-        work,
-        language,
-        statistics,
-      };
-      const payload =
-        section === "intakes"
-          ? {
-              // The intakes version token is the newest CountryIntake row, not
-              // the country itself, and must be omitted entirely while none
-              // exist -- sending one against no rows is treated as stale.
-              expectedUpdatedAt: intakeVersion(bundle),
-              intakes: intakes.map((row, displayOrder) => ({
-                intakeId: row.intakeId,
-                isMajor: row.isMajor,
-                availabilityStatus: row.availabilityStatus,
-                applicationOpeningMonth: row.applicationOpeningMonth || undefined,
-                applicationDeadlineMonth:
-                  row.applicationDeadlineMonth || undefined,
-                applicationOpeningNote: row.applicationOpeningNote || undefined,
-                applicationDeadlineNote:
-                  row.applicationDeadlineNote || undefined,
-                notes: row.notes || undefined,
-                displayOrder,
-              })),
-            }
-          : {
-              ...clearedChoices(drafts[section]),
-              expectedUpdatedAt: drafts[section].updatedAt as string | undefined,
-            };
-      await putCountryProfile(
-        countryId,
-        section,
-        payload as Record<string, unknown>,
-      );
+      await putCountryProfile(countryId, section, payloadFor(section));
       // Re-read rather than trusting local state: this is what keeps a second
       // edit working, and it surfaces any server-side normalisation.
       const refreshed = await getCountryProfiles(countryId);
@@ -277,14 +338,16 @@ export function CountryProfilesEditor({ countryId }: { countryId: string }) {
     }
   }
 
-  if (!bundle)
+  /* Only an existing country has profiles to wait for. A new one has nothing
+   * to load, so it renders its cards straight away. */
+  if (countryId && !bundle)
     return (
       <section className="mt-8 rounded-2xl border border-[#E8ECF3] bg-white p-6 text-sm text-[#667085]">
         {error || "Loading country profiles…"}
       </section>
     );
 
-  const derivedCount = bundle.derivedUniversitiesCount ?? null;
+  const derivedCount = bundle?.derivedUniversitiesCount ?? null;
   const usingManualCount =
     text(statistics.sourceMode) !== "DERIVED" &&
     Boolean(statistics.sourceReference) &&
@@ -321,24 +384,27 @@ export function CountryProfilesEditor({ countryId }: { countryId: string }) {
         description="Published tuition and living ranges for this country. When left empty the country page falls back to the average of published course offerings."
         onSave={() => void save("cost")}
         busy={saving === "cost"}
+        unsaved={!countryId}
       >
         <Fields
           draft={cost}
           set={setCost}
+          /* Currency code and symbol are the Country's, not the cost card's --
+           * they were duplicated here and could disagree with the identity
+           * section. Tuition period and budget band are gone from the editor
+           * too; both columns and their API fields remain, so the public Budget
+           * filter and any importer that writes them keep working. */
           fields={[
-            { key: "currencyCode", label: "Currency code", hint: "Three letters, e.g. EUR" },
-            { key: "currencySymbol", label: "Currency symbol" },
             { key: "tuitionMin", label: "Tuition minimum", kind: "number" },
             { key: "tuitionMax", label: "Tuition maximum", kind: "number" },
-            { key: "tuitionPeriod", label: "Tuition period", kind: "select", options: COST_PERIODS },
             { key: "livingCostMin", label: "Living cost minimum", kind: "number" },
             { key: "livingCostMax", label: "Living cost maximum", kind: "number" },
             { key: "livingCostPeriod", label: "Living cost period", kind: "select", options: COST_PERIODS },
-            { key: "budgetBand", label: "Budget band", kind: "select", options: BUDGET_BANDS, hint: "Drives the public Budget filter." },
             { key: "applicationFeeMin", label: "Application fee minimum", kind: "number" },
             { key: "applicationFeeMax", label: "Application fee maximum", kind: "number" },
-            { key: "tuitionNotes", label: "Tuition notes", kind: "textarea", wide: true },
-            { key: "livingCostNotes", label: "Living cost notes", kind: "textarea", wide: true },
+            { key: "tuitionNotes", label: "Tuition notes", kind: "richtext", wide: true },
+            { key: "livingCostNotes", label: "Living cost notes", kind: "richtext", wide: true },
+            { key: "disclaimer", label: "Cost disclaimer", kind: "richtext", wide: true },
             { key: "sourceReference", label: "Source reference", wide: true },
             { key: "verifiedAt", label: "Verified on", kind: "date" },
           ]}
@@ -350,6 +416,7 @@ export function CountryProfilesEditor({ countryId }: { countryId: string }) {
         description="Visa route, cost and processing time, plus what students may work during and after the course."
         onSave={() => void save("work")}
         busy={saving === "work"}
+        unsaved={!countryId}
       >
         <Fields
           draft={work}
@@ -362,12 +429,16 @@ export function CountryProfilesEditor({ countryId }: { countryId: string }) {
             { key: "partTimeAllowed", label: "Part-time work allowed during study", kind: "checkbox" },
             { key: "partTimeHoursPerWeek", label: "Work hours per week", kind: "number" },
             { key: "partTimeHoursDuringBreaks", label: "Work hours during breaks", kind: "number" },
-            { key: "partTimeSummary", label: "Part-time work summary", kind: "textarea", wide: true },
+            { key: "partTimeSummary", label: "Part-time work summary", kind: "richtext", wide: true },
             { key: "postStudyWorkAvailable", label: "Post-study work available", kind: "checkbox" },
             { key: "postStudyWorkMinMonths", label: "Post-study work minimum months", kind: "number" },
             { key: "postStudyWorkMaxMonths", label: "Post-study work maximum months", kind: "number" },
-            { key: "postStudyWorkSummary", label: "Post-study work summary", kind: "textarea", wide: true },
-            { key: "visaInformation", label: "Visa process", kind: "textarea", wide: true },
+            { key: "postStudyWorkSummary", label: "Post-study work summary", kind: "richtext", wide: true },
+            { key: "immigrationPathwayStrength", label: "Immigration pathway strength", kind: "select", options: PATHWAY_STRENGTHS },
+            { key: "immigrationPathwaySummary", label: "Immigration pathway summary", kind: "richtext", wide: true },
+            { key: "visaInformation", label: "Visa process", kind: "richtext", wide: true },
+            { key: "proofOfFundsSummary", label: "Proof of funds summary", kind: "richtext", wide: true },
+            { key: "disclaimer", label: "Work disclaimer", kind: "richtext", wide: true },
             { key: "sourceReference", label: "Source reference", wide: true },
             { key: "verifiedAt", label: "Verified on", kind: "date" },
           ]}
@@ -379,6 +450,7 @@ export function CountryProfilesEditor({ countryId }: { countryId: string }) {
         description="Country-level guidance. Individual programmes may still ask for more."
         onSave={() => void save("language")}
         busy={saving === "language"}
+        unsaved={!countryId}
       >
         <Fields
           draft={language}
@@ -386,16 +458,20 @@ export function CountryProfilesEditor({ countryId }: { countryId: string }) {
           fields={[
             { key: "ieltsRequirement", label: "IELTS requirement", kind: "select", options: LANGUAGE_REQUIREMENTS },
             { key: "ieltsMinScore", label: "IELTS minimum score", kind: "number", min: 0, max: 9, step: 0.5 },
-            { key: "ieltsNotes", label: "IELTS notes", kind: "textarea", wide: true },
+            { key: "ieltsNotes", label: "IELTS notes", kind: "richtext", wide: true },
             { key: "pteRequirement", label: "PTE requirement", kind: "select", options: LANGUAGE_REQUIREMENTS },
             { key: "pteMinScore", label: "PTE minimum score", kind: "number" },
+            { key: "pteNotes", label: "PTE notes", kind: "richtext", wide: true },
             { key: "toeflRequirement", label: "TOEFL requirement", kind: "select", options: LANGUAGE_REQUIREMENTS },
             { key: "toeflMinScore", label: "TOEFL minimum score", kind: "number" },
+            { key: "toeflNotes", label: "TOEFL notes", kind: "richtext", wide: true },
             { key: "duolingoRequirement", label: "Duolingo requirement", kind: "select", options: LANGUAGE_REQUIREMENTS },
             { key: "duolingoMinScore", label: "Duolingo minimum score", kind: "number" },
+            { key: "duolingoNotes", label: "Duolingo notes", kind: "richtext", wide: true },
             { key: "languageWaiverAvailable", label: "Language waiver available", kind: "checkbox" },
-            { key: "waiverNotes", label: "Waiver notes", kind: "textarea", wide: true },
-            { key: "generalNotes", label: "General notes", kind: "textarea", wide: true },
+            { key: "waiverNotes", label: "Waiver notes", kind: "richtext", wide: true },
+            { key: "generalNotes", label: "General notes", kind: "richtext", wide: true },
+            { key: "disclaimer", label: "Language disclaimer", kind: "richtext", wide: true },
             { key: "sourceReference", label: "Source reference", wide: true },
             { key: "verifiedAt", label: "Verified on", kind: "date" },
           ]}
@@ -407,6 +483,7 @@ export function CountryProfilesEditor({ countryId }: { countryId: string }) {
         description="Counts shown on the public country page."
         onSave={() => void save("statistics")}
         busy={saving === "statistics"}
+        unsaved={!countryId}
       >
         <label className="text-sm font-semibold">
           Where the university count comes from
@@ -470,6 +547,7 @@ export function CountryProfilesEditor({ countryId }: { countryId: string }) {
         description="When students can start, and when applications open and close."
         onSave={() => void save("intakes")}
         busy={saving === "intakes"}
+        unsaved={!countryId}
         full
       >
         <div className="sm:col-span-2 space-y-4">
@@ -549,19 +627,52 @@ export function CountryProfilesEditor({ countryId }: { countryId: string }) {
                         })
                       }
                     />
-                    <label className="text-sm font-semibold sm:col-span-2">
-                      Notes
-                      <textarea
-                        className={inputClass}
-                        rows={2}
-                        value={row.notes}
-                        onChange={(event) =>
+                    {/* Both notes are what the public intake card actually
+                      * prints beside "Applications open" and "Apply by" -- the
+                      * month selectors above only place the window. They had
+                      * no control at all until now, so a value could reach the
+                      * page through an import but never be written or
+                      * corrected here. */}
+                    <div className="sm:col-span-2">
+                      <RichTextEditor
+                        label="Applications open note"
+                        value={row.applicationOpeningNote}
+                        enableImages={false}
+                        minHeight="min-h-20"
+                        allowedVariables={variablesForContext("country")}
+                        onChange={(value) =>
                           updateIntake(setIntakes, option.id, {
-                            notes: event.target.value,
+                            applicationOpeningNote: value,
                           })
                         }
                       />
-                    </label>
+                    </div>
+                    <div className="sm:col-span-2">
+                      <RichTextEditor
+                        label="Application deadline note"
+                        value={row.applicationDeadlineNote}
+                        enableImages={false}
+                        minHeight="min-h-20"
+                        allowedVariables={variablesForContext("country")}
+                        onChange={(value) =>
+                          updateIntake(setIntakes, option.id, {
+                            applicationDeadlineNote: value,
+                          })
+                        }
+                      />
+                    </div>
+                    <div className="sm:col-span-2">
+                      <RichTextEditor
+                        label="Notes"
+                        value={row.notes}
+                        enableImages={false}
+                        minHeight="min-h-20"
+                        allowedVariables={variablesForContext("country")}
+                        onChange={(value) =>
+                          updateIntake(setIntakes, option.id, { notes: value })
+                        }
+                      />
+                    </div>
                   </div>
                 ) : null}
               </div>
@@ -570,6 +681,22 @@ export function CountryProfilesEditor({ countryId }: { countryId: string }) {
         </div>
       </ProfileCard>
     </section>
+  );
+});
+
+/** Whether an author actually put something in a card, so an untouched one is
+ * not written as an empty child record on the first save. A field the card
+ * starts on -- statistics opens on "DERIVED" -- only counts once it has been
+ * changed to something else, rather than counting merely for existing. */
+function populated(draft: Draft, defaults: Draft = {}): boolean {
+  return Object.entries(draft).some(
+    ([key, value]) =>
+      key !== "updatedAt" &&
+      value !== "" &&
+      value !== null &&
+      value !== undefined &&
+      value !== false &&
+      value !== defaults[key],
   );
 }
 
@@ -638,6 +765,11 @@ function ProfileCard({
   onSave,
   busy,
   full,
+  /* A card on a country that has not been created yet is fully editable; it
+   * is only the per-card Save that has nowhere to write. The button says so
+   * rather than disappearing, so the author can see the card is real and that
+   * the first country save is what carries it. */
+  unsaved,
 }: {
   title: string;
   description: string;
@@ -645,6 +777,7 @@ function ProfileCard({
   onSave: () => void;
   busy: boolean;
   full?: boolean;
+  unsaved?: boolean;
 }) {
   return (
     <section className="min-w-0 rounded-2xl border border-[#E8ECF3] bg-white p-4 sm:p-6">
@@ -655,14 +788,22 @@ function ProfileCard({
       <div className={`mt-5 grid gap-4 ${full ? "" : "sm:grid-cols-2"}`}>
         {children}
       </div>
-      <button
-        type="button"
-        onClick={onSave}
-        disabled={busy}
-        className="mt-5 rounded-xl bg-[#1657CF] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
-      >
-        {busy ? "Saving…" : `Save ${title.toLowerCase()}`}
-      </button>
+      <div className="mt-5 flex flex-wrap items-center gap-3">
+        <button
+          type="button"
+          onClick={onSave}
+          disabled={busy || unsaved}
+          className="rounded-xl bg-[#1657CF] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+        >
+          {busy ? "Saving…" : `Save ${title.toLowerCase()}`}
+        </button>
+        {unsaved ? (
+          <p className="text-xs text-[#667085]">
+            Saved with the country the first time you use Save draft or
+            Publish.
+          </p>
+        ) : null}
+      </div>
     </section>
   );
 }
@@ -682,6 +823,22 @@ function Fields({
         const patch = (value: unknown) =>
           set((current) => ({ ...current, [field.key]: value }));
         const span = field.wide ? "sm:col-span-2" : "";
+        if (field.kind === "richtext")
+          return (
+            <div key={field.key} className={span}>
+              <RichTextEditor
+                label={field.label}
+                value={text(draft[field.key])}
+                onChange={patch}
+                allowedVariables={variablesForContext("country")}
+                enableImages={false}
+                minHeight="min-h-28"
+              />
+              {field.hint ? (
+                <p className="mt-1 text-xs text-[#667085]">{field.hint}</p>
+              ) : null}
+            </div>
+          );
         if (field.kind === "checkbox")
           return (
             <label

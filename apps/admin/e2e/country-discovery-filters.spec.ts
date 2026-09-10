@@ -65,8 +65,14 @@ async function names(page: Page): Promise<string[]> {
   return (await shown(page).allInnerTexts()).map((name) => name.trim());
 }
 
-/** Only this run's destinations; the page also lists the real published ones. */
-const ours = (all: string[]) => all.filter((name) => name.startsWith(MARK)).sort();
+/** The two destinations this spec builds; the page also lists the real
+ * published ones, and other specs in the same run publish their own fixtures
+ * under the same acceptance marker. Matching on the marker alone used to be
+ * enough only because those fixtures carried a display order that pushed them
+ * off the first page -- display order has since left the Country editor, so
+ * the names are stated instead of inferred. */
+const FIXTURES = [`${MARK} Alphaland`, `${MARK} Betaland`];
+const ours = (all: string[]) => all.filter((name) => FIXTURES.includes(name)).sort();
 
 test.describe.serial('public country discovery filters', () => {
   const created: Record<string, string> = {};

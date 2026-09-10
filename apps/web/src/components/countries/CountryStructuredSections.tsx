@@ -36,7 +36,7 @@ export function CountryStructuredSections({ country }: { country: Country }) {
         <section id="country-admissions" className="structured-section editorial-section">
           <SectionHeading eyebrow="Destination guidance" title="Admissions at a glance" />
           <div className="structured-grid">
-            {configuration.acceptedTests.length ? <Fact label="Accepted English tests" value={configuration.acceptedTests.join(', ')} /> : null}
+            {configuration.acceptedTests.length ? <Fact label="Accepted English tests" value={configuration.acceptedTests.map((test) => test.label).join(', ')} /> : null}
             {configuration.intakeMonths.length ? <Fact label="Available intakes" value={configuration.intakeMonths.map(month).join(', ')} /> : null}
             {configuration.postStudyWorkPermitMonths !== null ? <Fact label="Post-study work permit" value={`Up to ${configuration.postStudyWorkPermitMonths} months`} /> : null}
           </div>

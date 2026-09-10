@@ -99,17 +99,17 @@ test.describe.serial('continent administration', () => {
 
     // Created and selected, without losing the country being filled in.
     await expect(dialog).toBeHidden();
-    await expect(page.getByLabel('Continent *')).toHaveValue(/.+/);
-    const selected = await page.getByLabel('Continent *').inputValue();
-    await expect(page.getByLabel('Continent *').locator(`option[value="${selected}"]`)).toHaveText(continentName);
+    await expect(page.getByLabel('Continent', { exact: true })).toHaveValue(/.+/);
+    const selected = await page.getByLabel('Continent', { exact: true }).inputValue();
+    await expect(page.getByLabel('Continent', { exact: true }).locator(`option[value="${selected}"]`)).toHaveText(continentName);
 
     // Asking for the same continent again selects it rather than making a second.
     await page.getByRole('button', { name: '+ Add continent' }).click();
     await dialog.getByLabel('Continent name').fill(continentName.toUpperCase());
     await dialog.getByRole('button', { name: 'Add continent' }).click();
     await expect(dialog).toBeHidden();
-    expect(await page.getByLabel('Continent *').inputValue()).toBe(selected);
-    await expect(page.getByLabel('Continent *').locator('option', { hasText: continentName })).toHaveCount(1);
+    expect(await page.getByLabel('Continent', { exact: true }).inputValue()).toBe(selected);
+    await expect(page.getByLabel('Continent', { exact: true }).locator('option', { hasText: continentName })).toHaveCount(1);
   });
 
   test('refuses to delete a continent that still has countries, and says which', async ({ page }, testInfo) => {
@@ -123,13 +123,13 @@ test.describe.serial('continent administration', () => {
     await createContinent(page, continentName);
 
     await page.goto('/countries/new');
-    await page.getByLabel('Continent *').selectOption({ label: continentName });
+    await page.getByLabel('Continent', { exact: true }).selectOption({ label: continentName });
     await page.getByLabel('Country name *').fill(countryName);
     await page
-      .getByLabel('Slug *')
+      .getByLabel('Slug', { exact: true })
       .fill(`${acceptanceSlugPrefix()}${slugOf(countryName)}`);
-    await page.getByLabel('Page heading *').fill(`Study in ${countryName}`);
-    await page.getByLabel('Short description *').fill('A browser E2E record for the continent dependency rule.');
+    await page.getByLabel('Page heading', { exact: true }).fill(`Study in ${countryName}`);
+    await page.getByLabel('Short description', { exact: true }).fill('A browser E2E record for the continent dependency rule.');
 
     await expect(page.getByLabel(/ISO alpha-2/i)).toHaveCount(0);
     await page.getByRole('button', { name: 'Save draft', exact: true }).click();

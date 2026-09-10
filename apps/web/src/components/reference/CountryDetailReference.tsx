@@ -149,7 +149,12 @@ export function CountryDetailReference(props: CountryDetailReferenceProps) {
     profileTuition ??
     (derivedTuition ? formatNumber(derivedTuition.amount) : null);
   const tuitionIsDerived = !profileTuition && Boolean(derivedTuition);
-  const currencyCode = cost?.currencyCode ?? derivedTuition?.currencyCode;
+  /* Cost inherits the Country's currency. The cost card stopped carrying its
+   * own currency control -- it was a second copy that could disagree with the
+   * identity section -- so without this fallback a country whose cost profile
+   * predates that change shows amounts with no currency at all. */
+  const currencyCode =
+    cost?.currencyCode ?? country.currency?.code ?? derivedTuition?.currencyCode;
   const currency = currencyCode ? `${currencyCode} ` : "";
 
   const living = range(cost?.livingCostMin, cost?.livingCostMax);
@@ -272,12 +277,17 @@ export function CountryDetailReference(props: CountryDetailReferenceProps) {
   ].filter(Boolean) as Array<{ label: string; value: string; note: string }>;
 
   const languageRows = [
-    ["IELTS", language?.ieltsRequirement, language?.ieltsMinScore],
-    ["TOEFL", language?.toeflRequirement, language?.toeflMinScore],
-    ["PTE", language?.pteRequirement, language?.pteMinScore],
-    ["Duolingo", language?.duolingoRequirement, language?.duolingoMinScore],
+    ["IELTS", language?.ieltsRequirement, language?.ieltsMinScore, language?.ieltsNotes],
+    ["TOEFL", language?.toeflRequirement, language?.toeflMinScore, language?.toeflNotes],
+    ["PTE", language?.pteRequirement, language?.pteMinScore, language?.pteNotes],
+    [
+      "Duolingo",
+      language?.duolingoRequirement,
+      language?.duolingoMinScore,
+      language?.duolingoNotes,
+    ],
   ].filter(([, requirement]) => Boolean(requirement)) as Array<
-    [string, string, string | null | undefined]
+    [string, string, string | null | undefined, string | null | undefined]
   >;
 
   const visaFacts = [
@@ -292,7 +302,12 @@ export function CountryDetailReference(props: CountryDetailReferenceProps) {
         humanise(work.visaSuccessBand),
       ],
     work?.visaProcessingTime && ["Processing time", work.visaProcessingTime],
-    work?.proofOfFundsSummary && ["Proof of funds", work.proofOfFundsSummary],
+    /* A fact-table cell, not a prose block: flatten the authored markup rather
+     * than printing its tags into the cell. */
+    work?.proofOfFundsSummary && [
+      "Proof of funds",
+      richTextToPlainText(work.proofOfFundsSummary),
+    ],
   ].filter(Boolean) as Array<[string, string]>;
 
   /* Country identity the client contract asks for. These are plain published
@@ -477,7 +492,9 @@ export function CountryDetailReference(props: CountryDetailReferenceProps) {
               initials(country.name)
             )}
           </span>
-          <h1>{country.pageHeading}</h1>
+          {/* A country can be published before its heading is written; the
+            * name is what the page is about either way. */}
+          <h1>{country.pageHeading?.trim() || country.name}</h1>
           {country.heroImage?.url ? (
             <figure className="hero-media">
               {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -489,7 +506,9 @@ export function CountryDetailReference(props: CountryDetailReferenceProps) {
             </figure>
           ) : null}
           {country.tagline ? <p className="eyebrow">{country.tagline}</p> : null}
-          <p className="lede">{richTextToPlainText(country.shortDescription)}</p>
+          {country.shortDescription ? (
+            <RichText className="lede" value={country.shortDescription} />
+          ) : null}
           {verifiedAt ? (
             <div className="updated">
               Figures verified {formatDate(verifiedAt)}
@@ -601,7 +620,7 @@ export function CountryDetailReference(props: CountryDetailReferenceProps) {
               {whyCards.map((card) => (
                 <article className="whycard" key={card.h}>
                   <h3>{card.h}</h3>
-                  <p>{card.p}</p>
+                  <RichText value={card.p} />
                   <span className="stat">{card.stat}</span>
                 </article>
               ))}
@@ -868,19 +887,19 @@ export function CountryDetailReference(props: CountryDetailReferenceProps) {
                     {entry.applicationOpeningNote ? (
                       <div className="i-row">
                         <span>Applications open</span>
-                        <b>{entry.applicationOpeningNote}</b>
+                        <b>{richTextToPlainText(entry.applicationOpeningNote)}</b>
                       </div>
                     ) : null}
                     {entry.applicationDeadlineNote ? (
                       <div className="i-row">
                         <span>Apply by</span>
-                        <b>{entry.applicationDeadlineNote}</b>
+                        <b>{richTextToPlainText(entry.applicationDeadlineNote)}</b>
                       </div>
                     ) : null}
                     {entry.notes ? (
                       <div className="i-row">
                         <span>Notes</span>
-                        <b>{entry.notes}</b>
+                        <b>{richTextToPlainText(entry.notes)}</b>
                       </div>
                     ) : null}
                   </article>
@@ -921,13 +940,13 @@ export function CountryDetailReference(props: CountryDetailReferenceProps) {
               * table above. `??` between them meant a country that filled in
               * tuition notes could never show its living-cost notes. */}
             {cost?.tuitionNotes ? (
-              <p className="disclaimer">{cost.tuitionNotes}</p>
+              <RichText className="disclaimer" value={cost.tuitionNotes} />
             ) : null}
             {cost?.livingCostNotes ? (
-              <p className="disclaimer">{cost.livingCostNotes}</p>
+              <RichText className="disclaimer" value={cost.livingCostNotes} />
             ) : null}
             {cost?.disclaimer ? (
-              <p className="disclaimer">{cost.disclaimer}</p>
+              <RichText className="disclaimer" value={cost.disclaimer} />
             ) : null}
           </div>
         </section>
@@ -996,7 +1015,9 @@ export function CountryDetailReference(props: CountryDetailReferenceProps) {
             <div className="head">
               <span className="eyebrow">Admissions</span>
               <h2>Language requirements for {country.name}</h2>
-              {language?.generalNotes ? <p>{language.generalNotes}</p> : null}
+              {language?.generalNotes ? (
+                <RichText value={language.generalNotes} />
+              ) : null}
             </div>
             <div className="cost-table">
               <div className="ct-row h">
@@ -1004,19 +1025,29 @@ export function CountryDetailReference(props: CountryDetailReferenceProps) {
                 <span>Requirement</span>
                 <span>Minimum score</span>
               </div>
-              {languageRows.map(([test, requirement, score]) => (
+              {languageRows.map(([test, requirement, score, notes]) => (
                 <div className="ct-row" key={test}>
                   <span>{test}</span>
                   <b>{humanise(requirement)}</b>
                   <span className="note">{score ?? "—"}</span>
+                  {notes ? (
+                    <RichText className="test-note" value={notes} />
+                  ) : null}
                 </div>
               ))}
             </div>
             {language?.languageWaiverAvailable ? (
-              <p className="disclaimer">
-                A waiver is available for some applicants.
-                {language.waiverNotes ? ` ${language.waiverNotes}` : ""}
-              </p>
+              <>
+                <p className="disclaimer">
+                  A waiver is available for some applicants.
+                </p>
+                {language.waiverNotes ? (
+                  <RichText className="disclaimer" value={language.waiverNotes} />
+                ) : null}
+              </>
+            ) : null}
+            {language?.disclaimer ? (
+              <RichText className="disclaimer" value={language.disclaimer} />
             ) : null}
           </div>
         </section>
@@ -1051,6 +1082,9 @@ export function CountryDetailReference(props: CountryDetailReferenceProps) {
               Immigration rules change frequently. Always confirm current
               requirements with the official government source before applying.
             </p>
+            {work?.disclaimer ? (
+              <RichText className="disclaimer" value={work.disclaimer} />
+            ) : null}
           </div>
         </section>
       ) : null}
@@ -1257,7 +1291,10 @@ export function CountryDetailReference(props: CountryDetailReferenceProps) {
                     </span>
                     <h3>{card.title}</h3>
                   </div>
-                  <p>{card.shortDescription}</p>
+                  <RichText value={card.shortDescription} />
+                  {card.overview ? (
+                    <RichText className="cons-overview" value={card.overview} />
+                  ) : null}
                   {card.isFreeConsultation ? (
                     <span className="free-badge">Free consultation</span>
                   ) : null}

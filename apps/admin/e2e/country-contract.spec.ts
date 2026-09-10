@@ -31,7 +31,6 @@ import { e2eEmail, e2ePassword } from '../playwright.config';
 const runId = acceptanceRunId();
 const COUNTRY_NAME = `${acceptanceCountryName(runId)} Contract`;
 const COUNTRY_SLUG = `${acceptanceSlugPrefix(runId)}contract-country`;
-const SUBJECT_NAME = `${acceptanceCountryName(runId)} Subject`;
 const TAG_NAME = `${acceptanceCountryName(runId)} Tag`;
 const MEDIA_TITLE = `${acceptanceCountryName(runId)} Image`;
 
@@ -120,6 +119,30 @@ async function storedFaqs(countryId: string): Promise<Row[]> {
   });
 }
 
+/** Rewrites the country's first FAQ answer through the API.
+ *
+ * The markup this test is about arrived that way -- from the importer and from
+ * earlier releases -- not by being typed. Typing it into the editor is not the
+ * same thing: an editor treats `<p>` as the characters the author pressed and
+ * escapes them, which is correct, so the setup has to go where the real data
+ * came from. */
+async function seedFaqAnswer(countryId: string, faq: Row, answer: string) {
+  return withAdminApi(async (api, headers) => {
+    const response = await api.patch(
+      `/api/v1/admin/countries/${countryId}/faqs/${String(faq.id)}`,
+      {
+        headers,
+        data: {
+          question: faq.question,
+          answer,
+          expectedUpdatedAt: faq.updatedAt,
+        },
+      },
+    );
+    expect(response.ok(), `FAQ PATCH: ${await response.text()}`).toBeTruthy();
+  });
+}
+
 async function putProfile(countryId: string, profile: string, data: Row) {
   return withAdminApi(async (api, headers) => {
     const response = await api.put(
@@ -177,6 +200,33 @@ async function ensureMediaFixture(): Promise<void> {
   });
 }
 
+/** Finds a country by the name it was created with, for fixtures whose slug the
+ * service derived rather than the test supplying one. */
+async function storedByName(name: string): Promise<Row> {
+  return withAdminApi(async (api, headers) => {
+    const response = await api.get(
+      `/api/v1/admin/countries?q=${encodeURIComponent(name)}&limit=5`,
+      { headers },
+    );
+    const body = (await response.json()) as { data?: Row[] };
+    const row = (body.data ?? []).find((item) => item.name === name);
+    expect(row, `the country named "${name}" should exist on the server`).toBeTruthy();
+    return row!;
+  });
+}
+
+/** Removes a fixture this test created, through the same soft-delete the Admin
+ * uses, so the run leaves nothing behind. */
+async function deleteCountryById(id: string, expectedUpdatedAt: unknown) {
+  await withAdminApi(async (api, headers) => {
+    await api.delete(`/api/v1/admin/countries/${id}`, {
+      headers: { ...headers, 'content-type': 'application/json' },
+      data: { expectedUpdatedAt },
+    });
+    return null;
+  });
+}
+
 async function publicCountry(page: Page): Promise<Row> {
   const response = await page.request.get(`${apiBaseUrl}/api/v1/countries/${COUNTRY_SLUG}`);
   expect(response.status()).toBe(200);
@@ -210,6 +260,16 @@ async function saveCountry(page: Page) {
   await openCountry(page);
 }
 
+/** A WYSIWYG field is a contenteditable region, addressed by its accessible
+ * name rather than by a form control. */
+/** The rich-text control itself, not the block around it: the editor carries
+ * its own accessible name now, and several of these labels are prefixes of a
+ * plain input beside them ("Visa process" and "Visa processing time"), so the
+ * match has to be exact. */
+function richText(scope: Page | Locator, label: string) {
+  return scope.getByRole('textbox', { name: label, exact: true });
+}
+
 async function openCountry(page: Page): Promise<Row> {
   const row = await storedCountry();
   await page.goto(`/countries/${String(row.id)}`);
@@ -218,27 +278,6 @@ async function openCountry(page: Page): Promise<Row> {
 }
 
 const picker = (page: Page, id: 'country-subjects' | 'country-tags') => page.getByTestId(id);
-
-/**
- * Empties a taxonomy picker through its own UI. Without this a case inherits
- * whatever the country already carried — from an earlier case, a retry, or a
- * previous run against the same fixture — and "exactly three" stops meaning
- * anything.
- */
-async function clearSelection(
-  page: Page,
-  id: 'country-subjects' | 'country-tags',
-): Promise<void> {
-  const root = picker(page, id);
-  await root.getByRole('button', { name: /^Selected \(/ }).click();
-  const selected = root.getByRole('checkbox');
-  for (let guard = 0; guard < 50; guard += 1) {
-    if ((await selected.count()) === 0) break;
-    await selected.first().uncheck();
-  }
-  await expect(root.getByRole('button', { name: 'Selected (0)' })).toBeVisible();
-  await root.getByRole('button', { name: 'All', exact: true }).click();
-}
 
 const escapeRe = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -314,6 +353,42 @@ test.describe.serial('country client contract, end to end', () => {
     });
   });
 
+  /**
+   * The complete editor is on screen before anything is saved. Profiles and
+   * intakes used to be replaced by a "save first" placeholder, so an author
+   * could not see what a Country would eventually be asked for -- Publish
+   * decides what the public sees, not what the Admin may look at.
+   */
+  test('shows the whole editor on a country that has not been saved yet', async ({
+    page,
+  }) => {
+    await loginAsAdmin(page);
+    await page.goto('/countries/new');
+    await expect(field(page, 'Country name')).toBeVisible({ timeout: 30_000 });
+
+    for (const heading of [
+      'Cost and budget',
+      'Work and visa',
+      'English requirements',
+      'Statistics',
+      'Intakes',
+    ])
+      await expect(
+        page.getByRole('heading', { name: heading, exact: true }),
+      ).toBeVisible();
+    await expect(page.getByText(/Save this Country first/i)).toHaveCount(0);
+
+    // A profile field is editable, not merely visible.
+    await field(page, 'Tuition minimum').fill('9000');
+    await expect(field(page, 'Tuition minimum')).toHaveValue('9000');
+
+    /* Curation is the one control that genuinely cannot work yet, so it stays
+     * on screen, disabled, and says which action unlocks it. */
+    const curation = page.getByRole('group', { name: 'Popular Universities' });
+    await expect(curation).toBeVisible();
+    await expect(curation.getByText(/Save the country first/i)).toBeVisible();
+  });
+
   test('creates the country with core and identity values', async ({ page }) => {
     await loginAsAdmin(page);
     const iso = await freeIso();
@@ -322,17 +397,18 @@ test.describe.serial('country client contract, end to end', () => {
     await field(page, 'Continent').selectOption({ index: 1 });
     await field(page, 'Country name').fill(COUNTRY_NAME);
     await field(page, 'Slug').first().fill(COUNTRY_SLUG);
-    await field(page, 'Display order').first().fill('37');
     await field(page, 'Page heading').fill(`Study in ${COUNTRY_NAME}`);
-    await field(page, 'Short description').first().fill(EXCERPT);
-    await field(page, 'Overview').first().fill(OVERVIEW);
+    await richText(page, 'Short description').fill(EXCERPT);
+    await richText(page, 'Overview').fill(OVERVIEW);
     await field(page, 'Tagline').fill(TAGLINE);
-    await field(page, 'ISO2').fill(iso.two);
-    await field(page, 'ISO3').fill(iso.three);
+    await field(page, 'ISO').fill(iso.two);
     await field(page, 'Capital').fill(CAPITAL);
     await field(page, 'Official language').fill(LANGUAGE);
-    await field(page, 'Currency code').first().fill('QQQ');
-    await field(page, 'Currency name').fill('Acceptance Dollar');
+    /* Currency is one choice behind three selectors now, so picking in any of
+     * them sets the other two -- a mismatched trio can no longer be typed. */
+    await page.getByLabel('Currency code').selectOption('EUR');
+    await expect(page.getByLabel('Currency name')).toHaveValue('EUR');
+    await expect(page.getByLabel('Currency symbol')).toHaveValue('EUR');
 
     await saveCountry(page);
 
@@ -341,7 +417,12 @@ test.describe.serial('country client contract, end to end', () => {
     expect(stored.tagline).toBe(TAGLINE);
     expect(stored.capitalCity).toBe(CAPITAL);
     expect(stored.officialLanguage).toBe(LANGUAGE);
-    expect(stored.displayOrder).toBe(37);
+    /* The admin payload carries the pair as `currency`, and the editable name
+     * beside it as `currencyName` -- there is no top-level `currencyCode`. */
+    expect((stored.currency as { code: string }).code).toBe('EUR');
+    expect(stored.currencyName).toBe('Euro');
+    /* Display order is no longer edited here; the stored value is whatever the
+     * record already had, and the editor sends it back untouched. */
     expect(stored.status).toBe('PUBLISHED');
   });
 
@@ -415,15 +496,9 @@ test.describe.serial('country client contract, end to end', () => {
 
     // What an operator actually meets is the browser's own constraint check,
     // so assert that -- and, because a bubble is easy to mistake for a save,
-    // assert the stored row is untouched as well.
-    const order = field(page, 'Display order').first();
-    await order.fill('-1');
-    await saveCountry(page);
-    expect(await order.evaluate((el: HTMLInputElement) => el.validity.rangeUnderflow)).toBe(true);
-    expect((await storedCountry()).displayOrder).toBe(before.displayOrder);
-
-    await order.fill('37');
-    const isoField = field(page, 'ISO2');
+    // assert the stored row is untouched as well. Display order has left the
+    // editor, so ISO is the remaining constrained identity input.
+    const isoField = field(page, 'ISO');
     await isoField.fill('A1');
     await saveCountry(page);
     expect(await isoField.evaluate((el: HTMLInputElement) => el.validity.patternMismatch)).toBe(
@@ -433,106 +508,202 @@ test.describe.serial('country client contract, end to end', () => {
 
     await isoField.fill(iso2);
     await saveCountry(page);
-    const saved = await storedCountry();
-    expect(saved.displayOrder).toBe(37);
-    expect(saved.iso2Code).toBe(iso2);
+    expect((await storedCountry()).iso2Code).toBe(iso2);
   });
 
-  test('persists a subject selection and replaces it exactly on a second edit', async ({ page }) => {
+  test('asks only for the country name, and derives the rest', async ({ page }) => {
     await loginAsAdmin(page);
-    await openCountry(page);
+    await page.goto('/countries/new');
 
-    const boxes = picker(page, 'country-subjects').getByRole('checkbox');
-    await expect(boxes.nth(3)).toBeVisible({ timeout: 30_000 });
+    /* The CMS rule: a country somebody has only just named must save. Nothing
+     * else is filled in here on purpose. */
+    const onlyName = `${acceptanceSlugPrefix(runId)}name only`;
+    await field(page, 'Country name').fill(onlyName);
+    await page.getByRole('button', { name: 'Save draft', exact: true }).click();
 
-    // Start from nothing, so "exactly three" is a statement about this case.
-    await clearSelection(page, 'country-subjects');
-    await saveCountry(page);
-    await openCountry(page);
-    expect(((await storedCountry()).subjectIds as string[]).length).toBe(0);
+    await expect(page).toHaveURL(/\/countries\/[a-f0-9-]+$/);
+    await expect(formIssues(page)).toHaveCount(0);
+    await expect(page.getByRole('heading', { name: 'Edit country' })).toBeVisible();
 
-    const chosen: string[] = [];
-    for (let index = 0; index < 3; index += 1) {
-      chosen.push(await labelOf(boxes.nth(index)));
-      await boxes.nth(index).check();
-    }
-    await saveCountry(page);
+    // Identity controls that left the editor stay gone.
+    await expect(page.getByLabel('Display order')).toHaveCount(0);
+    await expect(page.getByLabel(/ISO3/)).toHaveCount(0);
+    await expect(page.getByLabel(/ISO2/)).toHaveCount(0);
+    await expect(page.getByText('Flag image')).toHaveCount(0);
 
-    await openCountry(page);
-    for (const label of chosen)
-      await expect(
-        picker(page, 'country-subjects').getByRole('checkbox', { name: label, exact: true }),
-      ).toBeChecked();
-    const afterFirst = (await storedCountry()).subjects as Array<{ name: string }>;
-    expect(afterFirst.map((row) => row.name).sort()).toEqual([...chosen].sort());
+    // Nothing was author-entered beyond the name.
+    const derivedSlug = String((await storedByName(onlyName)).slug);
+    expect(derivedSlug).toBeTruthy();
+    await expect(field(page, 'Page heading')).toHaveValue('');
+    await expect(richText(page, 'Short description')).toHaveText('');
+    await expect(field(page, 'ISO')).toHaveValue('');
+    await expect(page.getByLabel('Currency code')).toHaveValue('');
 
-    const removed = chosen[0];
-    const added = await labelOf(boxes.nth(3));
-    await picker(page, 'country-subjects').getByRole('checkbox', { name: removed, exact: true }).uncheck();
-    await boxes.nth(3).check();
-    await saveCountry(page);
+    // ISO drives the flag, so a recognised code shows one with nothing uploaded.
+    await field(page, 'ISO').fill('MT');
+    await expect(page.getByTestId('country-flag-emoji')).toContainText('\u{1F1F2}\u{1F1F9}');
+    await field(page, 'ISO').fill('');
 
-    await openCountry(page);
-    const names = ((await storedCountry()).subjects as Array<{ name: string }>).map((r) => r.name);
-    // Exactly the replacement set: the two that stayed plus the one added.
-    expect(names.sort()).toEqual([...chosen.slice(1), added].sort());
-    // The removed subject must not return through any derived path.
-    expect(names).not.toContain(removed);
-  });
+    // Save draft stays put and says so; publish is the horizontal partner.
+    const actions = page.getByRole('button', { name: 'Publish', exact: true }).locator('xpath=../..');
+    await expect(actions).toHaveClass(/sticky/);
 
-  test('creates a subject inline without losing unsaved country edits', async ({ page }) => {
-    await loginAsAdmin(page);
-    await openCountry(page);
-
-    const unsaved = `${TAGLINE} unsaved marker`;
-    await field(page, 'Tagline').fill(unsaved);
-
-    await picker(page, 'country-subjects')
-      .getByRole('button', { name: '+ Add New Subject' })
-      .click();
-    const dialog = picker(page, 'country-subjects').getByRole('dialog');
-    await dialog.getByLabel('Subject name').fill(SUBJECT_NAME);
-    await dialog.getByRole('button', { name: /Create subject/i }).click();
-
-    // The country form never navigated and never submitted.
-    await expect(page).toHaveURL(/\/countries\/[^/]+$/);
-    await expect(field(page, 'Tagline')).toHaveValue(unsaved);
+    /* The whole point of the CMS rule: a country that carries nothing but a
+     * name has to reach the public site, not merely save. */
+    await page.getByRole('button', { name: 'Publish', exact: true }).click();
+    await expect(page).toHaveURL(/\/countries$/);
     await expect(
-      picker(page, 'country-subjects').getByRole('checkbox', { name: SUBJECT_NAME, exact: true }),
-    ).toBeChecked();
+      page.getByText(`${onlyName} published successfully.`, { exact: true }),
+    ).toBeVisible();
+
+    const published = await storedByName(onlyName);
+    expect(published.status).toBe('PUBLISHED');
+    expect(published.continentId ?? null).toBeNull();
+    expect(published.pageHeading ?? null).toBeNull();
+    expect(published.shortDescription ?? null).toBeNull();
+    expect(published.iso2Code ?? null).toBeNull();
+    expect(published.currencyCode ?? null).toBeNull();
+
+    // Discoverable in the admin list...
+    await page.getByRole('textbox', { name: 'Search countries' }).fill(onlyName);
+    await expect(page.getByRole('row').filter({ hasText: onlyName })).toBeVisible();
+
+    // ...and on the public site, both as a detail page and in the listing.
+    const detail = await page.request.get(
+      `${apiBaseUrl}/api/v1/countries/${derivedSlug}/page`,
+    );
+    expect(detail.status()).toBe(200);
+    await page.goto(`${webBaseUrl}/countries/${derivedSlug}`);
+    await expect(page.locator('h1')).toContainText(onlyName);
+    await page.goto(`${webBaseUrl}/countries`);
+    await expect(page.locator(`a[href="/countries/${derivedSlug}"]`).first()).toBeVisible();
+
+    await deleteCountryById(String(published.id), published.updatedAt);
+  });
+
+  /**
+   * Subjects and Tags left the Country editor by decision; the mappings did
+   * not. What matters is that a save from a form which no longer shows them
+   * does not clear them -- the API replaces those sets on every write, so a
+   * form that stopped sending them would silently empty every country an
+   * operator touched.
+   */
+  test('no longer edits subjects or tags, and does not clear the ones already mapped', async ({
+    page,
+  }) => {
+    await loginAsAdmin(page);
+    const country = await openCountry(page);
+    const countryId = String(country.id);
+
+    /* Seeded through the API rather than the form, because the form is
+     * exactly what no longer does this. Later cases in this file filter the
+     * country list by subject and tag, so both are assigned here. */
+    const { subjectIds, tagIds } = await withAdminApi(async (api, headers) => {
+      const subjectList = await api.get('/api/v1/admin/subjects?limit=3&status=PUBLISHED', {
+        headers,
+      });
+      const subjects = ((await subjectList.json()) as { data?: Row[] }).data ?? [];
+      const nextSubjects = subjects.map((row) => String(row.id));
+      expect(
+        nextSubjects.length,
+        'the fixture database should have published subjects',
+      ).toBeGreaterThan(0);
+
+      const created = await api.post('/api/v1/admin/country-tags', {
+        headers,
+        data: { name: TAG_NAME },
+      });
+      expect(created.ok(), `seed tag: ${await created.text()}`).toBeTruthy();
+      const tag = ((await created.json()) as { data: Row }).data;
+
+      const write = await api.patch(`/api/v1/admin/countries/${countryId}`, {
+        headers,
+        /* The country update is a whole-record write: every identity field
+         * left out of it is cleared, not left alone. Seeding only the mappings
+         * silently wiped the continent, page heading and short description,
+         * and broke every later case in this chain. */
+        data: {
+          name: country.name,
+          continentId: (country.continent as { id: string } | null)?.id,
+          slug: country.slug,
+          pageHeading: country.pageHeading,
+          shortDescription: country.shortDescription,
+          tagline: country.tagline,
+          iso2Code: country.iso2Code,
+          capitalCity: country.capitalCity,
+          officialLanguage: country.officialLanguage,
+          currencyName: country.currencyName,
+          currencyCode: (country.currency as { code: string } | null)?.code,
+          currencySymbol: (country.currency as { symbol: string } | null)?.symbol,
+          subjectIds: nextSubjects,
+          tagIds: [String(tag.id)],
+          expectedUpdatedAt: country.updatedAt,
+        },
+      });
+      expect(write.ok(), `seed mappings: ${await write.text()}`).toBeTruthy();
+      return { subjectIds: nextSubjects, tagIds: [String(tag.id)] };
+    });
+
+    await page.reload();
+    await expect(field(page, 'Country name')).toHaveValue(COUNTRY_NAME, { timeout: 30_000 });
+
+    // The editor does not offer either taxonomy any more.
+    await expect(picker(page, 'country-subjects')).toHaveCount(0);
+    await expect(picker(page, 'country-tags')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: '+ Add New Subject' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: '+ Add New Tag' })).toHaveCount(0);
 
     await field(page, 'Tagline').fill(TAGLINE);
     await saveCountry(page);
 
-    await openCountry(page);
-    await expect(
-      picker(page, 'country-subjects').getByRole('checkbox', { name: SUBJECT_NAME, exact: true }),
-    ).toBeChecked();
-    expect(
-      ((await storedCountry()).subjects as Array<{ name: string }>).map((r) => r.name),
-    ).toContain(SUBJECT_NAME);
+    const after = await storedCountry();
+    expect([...(after.subjectIds as string[])].sort()).toEqual([...subjectIds].sort());
+    expect(after.tagIds as string[]).toEqual(tagIds);
   });
 
-  test('persists tags, including one created inline', async ({ page }) => {
+  /**
+   * Features and accepted English tests are reusable master data. The decision
+   * was explicitly that an option added while editing one country becomes
+   * available to every other one, so this checks the second country too --
+   * a country-local string would pass everything up to that point.
+   */
+  test('adds a feature that becomes available on every country', async ({ page }) => {
     await loginAsAdmin(page);
     await openCountry(page);
 
-    await picker(page, 'country-tags').getByRole('button', { name: '+ Add New Tag' }).click();
-    const dialog = picker(page, 'country-tags').getByRole('dialog');
-    await dialog.getByLabel('Tag name').fill(TAG_NAME);
-    await dialog.getByRole('button', { name: /Create tag/i }).click();
-    await expect(
-      picker(page, 'country-tags').getByRole('checkbox', { name: TAG_NAME, exact: true }),
-    ).toBeChecked();
+    const featureName = `${acceptanceCountryName(runId)} Feature`;
+    const group = page.getByRole('group', { name: 'Features' });
+    await group.getByLabel('Add a feature').fill(featureName);
+    await group.getByRole('button', { name: 'Add a feature' }).click();
+
+    // Added and selected here without leaving the form.
+    await expect(group.getByRole('checkbox', { name: featureName, exact: true })).toBeChecked({
+      timeout: 30_000,
+    });
     await saveCountry(page);
 
     await openCountry(page);
     await expect(
-      picker(page, 'country-tags').getByRole('checkbox', { name: TAG_NAME, exact: true }),
+      page
+        .getByRole('group', { name: 'Features' })
+        .getByRole('checkbox', { name: featureName, exact: true }),
     ).toBeChecked();
-    expect(
-      ((await storedCountry()).tags as Array<{ name: string }>).map((r) => r.name),
-    ).toContain(TAG_NAME);
+
+    // The point of the change: another country is offered the same option.
+    const other = await withAdminApi(async (api, headers) => {
+      const list = await api.get('/api/v1/admin/countries?limit=5', { headers });
+      const rows = ((await list.json()) as { data?: Row[] }).data ?? [];
+      const row = rows.find((item) => item.slug !== COUNTRY_SLUG);
+      expect(row, 'a second country is needed to prove the option is global').toBeTruthy();
+      return row!;
+    });
+    await page.goto(`/countries/${String(other.id)}`);
+    const offered = page
+      .getByRole('group', { name: 'Features' })
+      .getByRole('checkbox', { name: featureName, exact: true });
+    await expect(offered).toBeVisible({ timeout: 30_000 });
+    // Offered, not inherited: the other country did not silently gain it.
+    await expect(offered).not.toBeChecked();
   });
 
   test('persists cost, visa and language, and survives a second save', async ({ page }) => {
@@ -542,8 +713,14 @@ test.describe.serial('country client contract, end to end', () => {
       expect(page.getByRole('status')).toContainText('saved', { timeout: 30_000 });
 
     const cost = card(page, 'Cost and budget');
-    // This one carries a hint, which the label text absorbs with no separator.
-    await cost.getByLabel(/^Currency code/).fill('QQQ');
+    /* Cost inherits the Country's currency now: its own code and symbol, the
+     * tuition period and the budget band have all left this card. */
+    await expect(cost.getByLabel(/^Currency code/)).toHaveCount(0);
+    await expect(cost.getByLabel(/^Currency symbol/)).toHaveCount(0);
+    await expect(cost.getByLabel(/^Tuition period/)).toHaveCount(0);
+    await expect(cost.getByLabel(/^Budget band/)).toHaveCount(0);
+    // Living cost period stays, as the requirement asks.
+    await expect(cost.getByLabel(/^Living cost period/)).toHaveCount(1);
     await field(cost, 'Tuition minimum').fill('9100');
     await field(cost, 'Tuition maximum').fill('15100');
     await field(cost, 'Living cost minimum').fill('710');
@@ -564,7 +741,7 @@ test.describe.serial('country client contract, end to end', () => {
     await field(work, 'Work hours per week').fill('21');
     await field(work, 'Post-study work available').check();
     await field(work, 'Post-study work maximum months').fill('25');
-    await field(work, 'Visa process').fill('Acceptance visa guidance.');
+    await richText(work, 'Visa process').fill('Acceptance visa guidance.');
     await field(work, 'Source reference').fill('https://acceptance.example.invalid/visa');
     await field(work, 'Verified on').fill('2026-01-02');
     await work.getByRole('button', { name: 'Save work and visa' }).click();
@@ -581,7 +758,7 @@ test.describe.serial('country client contract, end to end', () => {
     ).toBeVisible();
     expect((await storedProfiles(countryId)).language?.ieltsMinScore ?? null).not.toBe('10');
     await field(language, 'IELTS minimum score').fill('6.5');
-    await field(language, 'IELTS notes').fill('No band below 6.0.');
+    await richText(language, 'IELTS notes').fill('No band below 6.0.');
     await field(language, 'PTE minimum score').fill('59');
     await field(language, 'Source reference').fill('https://acceptance.example.invalid/lang');
     await field(language, 'Verified on').fill('2026-01-02');
@@ -671,7 +848,10 @@ test.describe.serial('country client contract, end to end', () => {
     expect(first.length).toBeGreaterThan(0);
     expect(first[0].applicationOpeningMonth).toBe(3);
     expect(first[0].isMajor).toBe(true);
-    expect(first[0].notes).toBe('Acceptance intake note.');
+    /* The note is authored in the WYSIWYG, so it is stored as the rich text
+     * the editor produced rather than as the bare sentence typed into it. */
+    expect(String(first[0].notes)).toContain('Acceptance intake note.');
+    expect(String(first[0].notes)).toMatch(/^<p>/);
 
     // Second save: the intake token comes from the intake rows, and this is
     // the path that used to conflict on the very first write.
@@ -682,7 +862,7 @@ test.describe.serial('country client contract, end to end', () => {
     await box(intakes, 'Notes').first().fill('Acceptance intake note, revised.');
     await page.getByRole('button', { name: /^Save intakes$/ }).click();
     await expect(page.getByRole('status')).toContainText('saved', { timeout: 30_000 });
-    expect((await storedProfiles(countryId)).intakes[0].notes).toBe(
+    expect(String((await storedProfiles(countryId)).intakes[0].notes)).toContain(
       'Acceptance intake note, revised.',
     );
   });
@@ -725,14 +905,15 @@ test.describe.serial('country client contract, end to end', () => {
       return src!;
     }
 
-    const flagSrc = await attach('Flag image');
+    /* The flag is derived from the ISO code now, so there is no flag uploader
+     * to attach to -- hero and listing are the remaining media fields. */
+    await expect(page.getByText('Flag image')).toHaveCount(0);
     const heroSrc = await attach('Hero image');
     const listingSrc = await attach('Listing image');
     await saveCountry(page);
 
     await openCountry(page);
     for (const [caption, src] of [
-      ['Flag image', flagSrc],
       ['Hero image', heroSrc],
       ['Listing image', listingSrc],
     ] as Array<[string, string]>)
@@ -741,9 +922,10 @@ test.describe.serial('country client contract, end to end', () => {
       });
 
     const published = await publicCountry(page);
-    const file = flagSrc.split('/').pop()!;
-    expect(published.flag, 'the flag should reach the public payload').toBeTruthy();
-    expect(String((published.flag as { url: string }).url)).toContain(file);
+    const file = heroSrc.split('/').pop()!;
+    /* Flag media is no longer attached from this editor. Any flag a country
+     * already carries stays on the record and still reaches the public
+     * payload -- it is simply not set here any more. */
     // The client's featured_image and hero_image, both public and both named.
     expect(published.heroImage, 'hero_image should be public').toBeTruthy();
     expect(String((published.heroImage as { url: string }).url)).toContain(file);
@@ -766,7 +948,6 @@ test.describe.serial('country client contract, end to end', () => {
     await saveCountry(page);
     await openCountry(page);
     for (const [caption, src] of [
-      ['Flag image', flagSrc],
       ['Hero image', heroSrc],
       ['Listing image', listingSrc],
     ] as Array<[string, string]>)
@@ -823,7 +1004,9 @@ test.describe.serial('country client contract, end to end', () => {
     await saveCountry(page);
 
     await openCountry(page);
-    await expect(box(page, 'Answer').first()).toHaveValue(FAQ_ANSWER_2);
+    /* The answer is a rich-text control, so it holds text rather than an
+     * input value. */
+    await expect(box(page, 'Answer').first()).toHaveText(FAQ_ANSWER_2);
 
     await page.goto(`${webBaseUrl}/countries/${COUNTRY_SLUG}`);
     await expect(page.locator('body')).toContainText(FAQ_ANSWER_2);
@@ -840,7 +1023,8 @@ test.describe.serial('country client contract, end to end', () => {
     // used to re-send and be rejected for.
     const RICH_ANSWER =
       '<p>Plan for <strong>tuition</strong> and living costs.</p>';
-    await box(page, 'Answer').first().fill(RICH_ANSWER);
+    await seedFaqAnswer(countryId, (await storedFaqs(countryId))[0], RICH_ANSWER);
+    await openCountry(page);
     await saveCountry(page);
     await expect(formIssues(page)).toHaveCount(0);
     expect((await storedFaqs(countryId))[0]?.answer).toBe(RICH_ANSWER);
@@ -873,11 +1057,13 @@ test.describe.serial('country client contract, end to end', () => {
     // rest of this serial chain expects to find.
     await openCountry(page);
     await field(page, 'Tagline').fill(TAGLINE);
-    await box(page, 'Answer').first().fill('<p>Budget for <em>housing</em>.</p>');
+    /* Typed as prose, because that is what an author does; the editor is what
+     * turns it into the stored paragraph. */
+    await box(page, 'Answer').first().fill('Budget for housing.');
     await saveCountry(page);
     await expect(formIssues(page)).toHaveCount(0);
-    expect((await storedFaqs(countryId))[0].answer).toBe(
-      '<p>Budget for <em>housing</em>.</p>',
+    expect(String((await storedFaqs(countryId))[0].answer)).toContain(
+      'Budget for housing.',
     );
 
     await page.goto(`${webBaseUrl}/countries/${COUNTRY_SLUG}`);
@@ -1042,20 +1228,21 @@ test.describe.serial('country client contract, end to end', () => {
     await openCountry(page);
 
     /* The complaint has to arrive when the operator leaves the field, next to
-     * the field -- not as a banner at the top of a long form after Save. */
-    const iso3 = field(page, 'ISO3');
-    const original = String(await iso3.inputValue());
-    await iso3.fill('ML');
+     * the field -- not as a banner at the top of a long form after Save. ISO3
+     * has left the editor, so ISO carries this behaviour now. */
+    const iso = field(page, 'ISO');
+    const original = String(await iso.inputValue());
+    await iso.fill('M');
     await field(page, 'Capital').click();
-    const message = page.getByText('ISO3 must be exactly 3 letters, like MLT.');
+    const message = page.getByText('ISO must be exactly 2 letters, like MT.');
     await expect(message).toBeVisible();
 
     // Correcting it clears the message without needing a save.
-    await iso3.fill('MLT');
+    await iso.fill('MT');
     await field(page, 'Capital').click();
     await expect(message).toHaveCount(0);
 
-    await iso3.fill(original);
+    await iso.fill(original);
     await field(page, 'Capital').click();
   });
 
@@ -1133,10 +1320,16 @@ test.describe.serial('country client contract, end to end', () => {
   test('publishes the contract through the public API without leaking admin identity', async ({ page }) => {
     const data = await publicCountry(page);
     expect(data.tagline).toBe(TAGLINE);
-    expect(data.overview).toBe(OVERVIEW);
+    /* Overview is authored in the WYSIWYG, so the public payload carries the
+     * paragraph the editor produced rather than the bare sentence typed in. */
+    expect(String(data.overview)).toContain(OVERVIEW);
+    expect(String(data.overview)).toMatch(/^<p>/);
     expect(data.capitalCity).toBe(CAPITAL);
     expect(data.officialLanguage).toBe(LANGUAGE);
-    expect((data.currency as { code: string }).code).toBe('QQQ');
+    /* The editor picks a currency from the linked selectors now, so the
+     * country carries a real ISO code rather than a placeholder. */
+    expect((data.currency as { code: string }).code).toBe('EUR');
+    expect((data.currency as { symbol: string }).symbol).toBe('\u20AC');
     expect((data.subjects as unknown[]).length).toBeGreaterThan(0);
 
     const profiles = data.profiles as Record<string, Row | null>;
@@ -1173,7 +1366,8 @@ test.describe.serial('country client contract, end to end', () => {
         OVERVIEW,
         CAPITAL,
         LANGUAGE,
-        'QQQ',
+        // Cost inherits the country's currency, so this is what the page shows.
+        'EUR',
         'Acceptance student permit',
         '5 to 7 weeks',
         'IELTS',

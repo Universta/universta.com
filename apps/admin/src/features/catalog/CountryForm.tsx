@@ -6,10 +6,10 @@ import { useRouter } from "next/navigation";
 import {
   createConsultantCard,
   createContinent,
-  createCountryTag,
   createCountry,
+  createCountryEnglishTest,
   createCountryFaq,
-  createSubject,
+  createCountryFeature,
   createEditorialSection,
   deleteConsultantCard,
   deleteCountryFaq,
@@ -19,9 +19,9 @@ import {
   getCountryCurationOptions,
   getCountryEditorial,
   listContinents,
-  listCountryTags,
+  listCountryEnglishTests,
+  listCountryFeatures,
   listEditorialMedia,
-  listAllSubjects,
   publishCountry,
   saveCountrySeo,
   unpublishCountry,
@@ -30,6 +30,7 @@ import {
   updateCountryFaq,
   updateEditorialSection,
 } from "./catalog-client";
+import type { CountryTaxonomyOption } from "./catalog-client";
 import type {
   CatalogMutationError,
   ContinentRecord,
@@ -38,13 +39,7 @@ import type {
   CountryRecord,
   EditorialMedia,
   EditorialSeo,
-  CountryTagRecord,
-  SubjectRecord,
 } from "./catalog.types";
-import {
-  CountryTaxonomyPicker,
-  type CreateOutcome,
-} from "./CountryTaxonomyPicker";
 import { MediaPickerDialog } from "./editorial/MediaPickerDialog";
 import { TypedBodyEditor } from "./editorial/TypedBodyEditor";
 import {
@@ -72,7 +67,18 @@ import {
   queueFlash,
   type Flash,
 } from "@/features/shared/Flash";
-import { CountryProfilesEditor } from "./CountryProfilesEditor";
+import { RichTextEditor } from "@/features/shared/RichTextEditor";
+import {
+  CURRENCY_OPTIONS,
+  currencyByCode,
+  flagEmojiFromIso,
+  matchCurrency,
+  type CurrencyOption,
+} from "./currency-options";
+import {
+  CountryProfilesEditor,
+  type CountryProfilesHandle,
+} from "./CountryProfilesEditor";
 import {
   countryFieldRules,
   fieldErrorsFromServer,
@@ -227,17 +233,10 @@ const hasSeo = (value: UnifiedSeoDraft) =>
     value.twitterMediaId,
   );
 
-const featureOptions = [
-  ["BUDGET_FRIENDLY", "Budget friendly"],
-  ["IELTS_OPTIONAL", "IELTS optional"],
-  ["HIGH_VISA_SUCCESS", "High visa success"],
-  ["PR_FRIENDLY", "PR friendly"],
-  ["TOP_RANKED_UNIVERSITIES", "Top ranked universities"],
-  ["PART_TIME_ALLOWED", "Part-time allowed"],
-  ["POST_STUDY_WORK_AVAILABLE", "Post-study work available"],
-  ["LANGUAGE_WAIVER", "Language waiver"],
-] as const;
-const testOptions = ["IELTS", "TOEFL", "PTE"];
+/* Features and accepted English tests were two literal arrays here, duplicating
+ * the API's own. Both are master data now: the lists below are fetched, and an
+ * option added from this form is available to every other Country immediately.
+ */
 const monthOptions = [
   "January",
   "February",
@@ -296,8 +295,6 @@ export function CountryForm({ countryId }: { countryId?: string }) {
   const router = useRouter();
   const [record, setRecord] = useState<CountryRecord | null>(null);
   const [continents, setContinents] = useState<ContinentRecord[]>([]);
-  const [subjects, setSubjects] = useState<SubjectRecord[]>([]);
-  const [tags, setTags] = useState<CountryTagRecord[]>([]);
   const [subjectIds, setSubjectIds] = useState<string[]>([]);
   const [tagIds, setTagIds] = useState<string[]>([]);
   const [core, setCore] = useState<Core>(blankCore);
@@ -306,6 +303,13 @@ export function CountryForm({ countryId }: { countryId?: string }) {
   const [curationOptions, setCurationOptions] =
     useState<CountryCurationOptions | null>(null);
   const [media, setMedia] = useState<EditorialMedia[]>([]);
+  /* Profiles and intakes are separate child records with their own routes, so
+   * the first save has to hand them the id the country was just given. */
+  const profilesRef = useRef<CountryProfilesHandle>(null);
+  const [featureOptions, setFeatureOptions] = useState<CountryTaxonomyOption[]>(
+    [],
+  );
+  const [testOptions, setTestOptions] = useState<CountryTaxonomyOption[]>([]);
   const [sections, setSections] = useState<SectionRow[]>([]);
   const [faqs, setFaqs] = useState<FaqRow[]>([]);
   /** The server's copy of each saved FAQ, so a save can tell an edited row
@@ -384,18 +388,21 @@ export function CountryForm({ countryId }: { countryId?: string }) {
     let active = true;
     const load = async () => {
       try {
-        const [continentResult, mediaResult, subjectRows, tagResult] =
+        /* Subject and Tag option lists are no longer fetched: the form does
+         * not offer those pickers any more. The country's own mappings still
+         * load below and are sent back untouched. */
+        const [continentResult, mediaResult, featureResult, testResult] =
           await Promise.all([
             listContinents({ limit: 100 }),
             listEditorialMedia({ limit: 50 }),
-            listAllSubjects(),
-            listCountryTags(),
+            listCountryFeatures(),
+            listCountryEnglishTests(),
           ]);
         if (!active) return;
         setContinents(continentResult.data);
         setMedia(mediaResult.data);
-        setSubjects(subjectRows);
-        setTags(tagResult.data);
+        setFeatureOptions(featureResult.data ?? []);
+        setTestOptions(testResult.data ?? []);
         if (!countryId) return;
         const [countryResult, editorialResult, curationResult] =
           await Promise.all([
@@ -409,11 +416,18 @@ export function CountryForm({ countryId }: { countryId?: string }) {
         setRecord(country);
         setCore({
           externalUid: country.externalUid ?? "",
-          continentId: country.continent.id,
+          /* Optional since Country became a CMS record: a country saved with
+           * nothing but a name has no continent, and reading through it threw
+           * before the form had loaded a single field -- so the editor came up
+           * empty and then complained that the name was missing. */
+          continentId: country.continent?.id ?? "",
           name: country.name,
           slug: country.slug,
-          pageHeading: country.pageHeading,
-          shortDescription: country.shortDescription,
+          /* Nullable for the same reason as the continent above, and every
+           * control here is a controlled string -- a null reached `.trim()` on
+           * the next save and took the whole editor down with it. */
+          pageHeading: country.pageHeading ?? "",
+          shortDescription: country.shortDescription ?? "",
           overview: country.overview ?? "",
           tagline: country.tagline ?? "",
           iso2Code: country.iso2Code ?? "",
@@ -438,7 +452,8 @@ export function CountryForm({ countryId }: { countryId?: string }) {
           featureCodes:
             country.configuration?.features.map((feature) => feature.code) ??
             [],
-          acceptedTests: country.configuration?.acceptedTests ?? [],
+          acceptedTests:
+            country.configuration?.acceptedTests.map((test) => test.code) ?? [],
           intakeMonths: country.configuration?.intakeMonths ?? [],
           postStudyWorkPermitMonths:
             country.configuration?.postStudyWorkPermitMonths === null ||
@@ -539,6 +554,34 @@ export function CountryForm({ countryId }: { countryId?: string }) {
     setDirty(true);
     setIssues([]);
   };
+  /** Adds a reusable option and selects it on this Country.
+   *
+   * The option is global on purpose: the operator who needs "Scholarship
+   * friendly" for Ireland is the same operator who will want it for Canada
+   * next week, and a Country-local string would leave the public side with a
+   * code it has no label for. An option that already exists comes back from
+   * the API rather than erroring, so adding a duplicate simply selects it. */
+  const addTaxonomyOption = async (
+    kind: "feature" | "englishTest",
+    name: string,
+  ) => {
+    const create = kind === "feature" ? createCountryFeature : createCountryEnglishTest;
+    const setOptions = kind === "feature" ? setFeatureOptions : setTestOptions;
+    const key = kind === "feature" ? "featureCodes" : "acceptedTests";
+    const { data } = await create({ name });
+    if (!data) return;
+    setOptions((current) =>
+      current.some((option) => option.code === data.code)
+        ? current
+        : [...current, data],
+    );
+    setConfiguration((current) =>
+      (current[key] as string[]).includes(data.code)
+        ? current
+        : { ...current, [key]: [...(current[key] as string[]), data.code] },
+    );
+  };
+
   const toggleConfiguration = (
     key:
       | "featureCodes"
@@ -822,7 +865,12 @@ export function CountryForm({ countryId }: { countryId?: string }) {
     setNotice(null);
     try {
       const payload = {
-        continentId: core.continentId,
+        /* An unpicked continent is an empty select value, and the API reads
+         * that as a malformed id rather than as "none" -- so a country
+         * carrying nothing but a name, the one thing this editor now
+         * guarantees can be saved, came back as an invalid request naming no
+         * field at all. */
+        continentId: clearable(core.continentId),
         name: core.name.trim(),
         slug: core.slug.trim() || slugify(core.name),
         pageHeading: core.pageHeading.trim(),
@@ -870,6 +918,10 @@ export function CountryForm({ countryId }: { countryId?: string }) {
        * It also pins a newly created country's id, so a retry updates it
        * instead of trying to create the same slug twice. */
       setRecord(saved);
+      /* Only on the save that created the row: afterwards each card writes
+       * through its own Save, and re-flushing them here would overwrite a
+       * card someone else had edited in the meantime. */
+      if (!record) await profilesRef.current?.persistDrafts(saved.id);
       await syncEditorial(saved.id);
       const refreshed = (await getCountry(saved.id)).data;
       saved =
@@ -1028,18 +1080,9 @@ export function CountryForm({ countryId }: { countryId?: string }) {
               onBlur={() => checkField("slug", core.slug)}
               onChange={(value) => setCoreField("slug", value)}
             />
-            <Input
-              label="Display order"
-              value={core.displayOrder}
-              name="displayOrder"
-              error={fieldErrors.displayOrder}
-              onBlur={() => checkField("displayOrder", core.displayOrder)}
-              onChange={(value) => setCoreField("displayOrder", value)}
-              type="number"
-              min={0}
-              max={999999}
-              step={1}
-            />
+            {/* Display order is no longer edited here: it is a listing concern,
+              * not country content. The value is still loaded and sent back
+              * unchanged, so existing ordering and imports keep working. */}
             <Input
               label="Page heading"
               value={core.pageHeading}
@@ -1049,25 +1092,31 @@ export function CountryForm({ countryId }: { countryId?: string }) {
               onChange={(value) => setCoreField("pageHeading", value)}
               span
             />
-            <Input
-              label="Short description"
-              value={core.shortDescription}
-              name="shortDescription"
-              error={fieldErrors.shortDescription}
-              onBlur={() => checkField("shortDescription", core.shortDescription)}
-              onChange={(value) => setCoreField("shortDescription", value)}
-              textarea
-              span
-              rows={4}
-            />
-            <Input
-              label="Overview"
-              value={core.overview}
-              onChange={(value) => setCoreField("overview", value)}
-              textarea
-              span
-              rows={6}
-            />
+            <div className="sm:col-span-2">
+              <RichTextEditor
+                label="Short description"
+                value={core.shortDescription}
+                onChange={(value) => setCoreField("shortDescription", value)}
+                allowedVariables={variablesForContext("country")}
+                enableImages={false}
+                minHeight="min-h-28"
+              />
+              {fieldErrors.shortDescription ? (
+                <p role="alert" className="mt-1 text-xs font-semibold text-[#B42318]">
+                  {fieldErrors.shortDescription}
+                </p>
+              ) : null}
+            </div>
+            <div className="sm:col-span-2">
+              <RichTextEditor
+                label="Overview"
+                value={core.overview}
+                onChange={(value) => setCoreField("overview", value)}
+                allowedVariables={variablesForContext("country")}
+                media={media}
+                minHeight="min-h-40"
+              />
+            </div>
             <Input
               label="Tagline"
               value={core.tagline}
@@ -1080,7 +1129,7 @@ export function CountryForm({ countryId }: { countryId?: string }) {
           </div>
           <div className="mt-6 grid gap-5 sm:grid-cols-2">
             <Input
-              label="ISO2"
+              label="ISO"
               value={core.iso2Code}
               name="iso2Code"
               error={fieldErrors.iso2Code}
@@ -1091,16 +1140,10 @@ export function CountryForm({ countryId }: { countryId?: string }) {
               maxLength={2}
               pattern="[A-Za-z]{2}"
             />
-            <Input
-              label="ISO3"
-              value={core.iso3Code}
-              name="iso3Code"
-              error={fieldErrors.iso3Code}
-              onBlur={() => checkField("iso3Code", core.iso3Code)}
-              onChange={(value) =>
-                setCoreField("iso3Code", value.toUpperCase())
-              }
-            />
+            {/* ISO3 is not edited here any more. It stays on the record and the
+              * API still derives it from a recognised country name, so nothing
+              * that reads it had to change. */}
+            <FlagPreview iso2={core.iso2Code} />
             <Input
               label="Capital"
               value={core.capitalCity}
@@ -1117,45 +1160,26 @@ export function CountryForm({ countryId }: { countryId?: string }) {
               onBlur={() => checkField("officialLanguage", core.officialLanguage)}
               onChange={(value) => setCoreField("officialLanguage", value)}
             />
-            <Input
-              label="Currency name"
-              value={core.currencyName}
-              name="currencyName"
-              error={fieldErrors.currencyName}
-              onBlur={() => checkField("currencyName", core.currencyName)}
-              onChange={(value) => setCoreField("currencyName", value)}
-            />
-            <Input
-              label="Currency code"
-              value={core.currencyCode}
-              name="currencyCode"
-              error={fieldErrors.currencyCode}
-              onBlur={() => checkField("currencyCode", core.currencyCode)}
-              onChange={(value) =>
-                setCoreField("currencyCode", value.toUpperCase())
-              }
-            />
-            <Input
-              label="Currency symbol"
-              value={core.currencySymbol}
-              name="currencySymbol"
-              error={fieldErrors.currencySymbol}
-              onBlur={() => checkField("currencySymbol", core.currencySymbol)}
-              onChange={(value) => setCoreField("currencySymbol", value)}
-            />
             <BooleanField
               label="Featured"
               checked={core.isFeatured}
               onChange={(value) => setCoreField("isFeatured", value)}
             />
           </div>
-          <div className="mt-6 grid gap-5 sm:grid-cols-3">
-            <MediaPickerDialog
-              label="Flag image"
-              value={core.flagMediaId}
-              media={media}
-              onChange={(value) => setCoreField("flagMediaId", value)}
-            />
+          <CurrencyRow
+            code={core.currencyCode}
+            name={core.currencyName}
+            symbol={core.currencySymbol}
+            onChange={(next) => {
+              setCoreField("currencyName", next.name);
+              setCoreField("currencyCode", next.code);
+              setCoreField("currencySymbol", next.symbol);
+            }}
+          />
+          {/* The flag is derived from the ISO code rather than uploaded -- see
+            * FlagPreview above. Any flag media a country already has stays on
+            * the record and is sent back untouched. */}
+          <div className="mt-6 grid gap-5 sm:grid-cols-2">
             <MediaPickerDialog
               label="Listing image"
               value={core.listingMediaId}
@@ -1169,53 +1193,12 @@ export function CountryForm({ countryId }: { countryId?: string }) {
               onChange={(value) => setCoreField("heroMediaId", value)}
             />
           </div>
-          <div className="mt-6 grid gap-6 lg:grid-cols-2">
-            <CountryTaxonomyPicker
-              title="Subjects"
-              singular="Subject"
-              testId="country-subjects"
-              rows={subjects.map((row) => ({
-                id: row.id,
-                label: row.name,
-                usage: row.courseCount ?? 0,
-                children: (row.subSubjects ?? []).map((child) => ({
-                  id: child.id,
-                  label: child.name,
-                })),
-              }))}
-              selected={subjectIds}
-              onChange={setSubjectIds}
-              onCreate={async (name): Promise<CreateOutcome> => {
-                const created = (
-                  await createSubject({ name, slug: slugify(name) })
-                ).data;
-                setSubjects((rows) => [...rows, created]);
-                return { kind: "created", id: created.id, label: created.name };
-              }}
-            />
-            <CountryTaxonomyPicker
-              title="Tags"
-              singular="Tag"
-              testId="country-tags"
-              rows={tags.map((row) => ({ id: row.id, label: row.name }))}
-              selected={tagIds}
-              onChange={setTagIds}
-              onCreate={async (name): Promise<CreateOutcome> => {
-                const created = (
-                  await createCountryTag({ name, slug: slugify(name) })
-                ).data;
-                setTags((rows) => [...rows, created]);
-                // The API returns the existing active tag rather than a
-                // duplicate, so a matching id means it was already there.
-                const existed = tags.some((row) => row.id === created.id);
-                return {
-                  kind: existed ? "existing" : "created",
-                  id: created.id,
-                  label: created.name,
-                };
-              }}
-            />
-          </div>
+          {/* Subjects and Tags are no longer managed from the Country editor.
+            * The mappings themselves are untouched: they are still loaded into
+            * `subjectIds` / `tagIds` and sent back unchanged on every save, so
+            * existing relations, importers and the public country page keep
+            * working exactly as before -- this form simply stopped being the
+            * place they are edited. */}
         </Card>
         <Card
           eyebrow="Configuration"
@@ -1225,18 +1208,27 @@ export function CountryForm({ countryId }: { countryId?: string }) {
           <div className="space-y-6">
             <CheckboxGroup
               title="Features"
-              options={featureOptions.map(([value, label]) => ({
-                value,
-                label,
+              options={featureOptions.map((option) => ({
+                value: option.code,
+                label: option.name,
               }))}
               selected={configuration.featureCodes}
               onToggle={(value) => toggleConfiguration("featureCodes", value)}
+              addLabel="Add a feature"
+              addPlaceholder="e.g. Scholarship friendly"
+              onAdd={(name) => addTaxonomyOption("feature", name)}
             />
             <CheckboxGroup
               title="Accepted English tests"
-              options={testOptions.map((value) => ({ value, label: value }))}
+              options={testOptions.map((option) => ({
+                value: option.code,
+                label: option.name,
+              }))}
               selected={configuration.acceptedTests}
               onToggle={(value) => toggleConfiguration("acceptedTests", value)}
+              addLabel="Add an English test"
+              addPlaceholder="e.g. Duolingo"
+              onAdd={(name) => addTaxonomyOption("englishTest", name)}
             />
             <CheckboxGroup
               title="Available intake months"
@@ -1285,7 +1277,10 @@ export function CountryForm({ countryId }: { countryId?: string }) {
             </div>
           </div>
         </Card>
-        {record ? <CountryProfilesEditor countryId={record.id} /> : <section className="rounded-2xl border border-dashed border-[#D9E0EA] p-6 text-sm text-[#667085]">Save this Country first to edit its detailed profiles and intakes.</section>}
+        {/* Rendered from the start, with or without a country row. Its cards
+          * hold their values locally until the first save creates the parent,
+          * and `persistDrafts` below writes them then. */}
+        <CountryProfilesEditor ref={profilesRef} countryId={record?.id} />
         <Card
           eyebrow="Editorial"
           title="Content sections"
@@ -1365,14 +1360,16 @@ export function CountryForm({ countryId }: { countryId?: string }) {
                       }
                       span
                     />
-                    <Input
-                      label="Answer"
-                      value={row.answer}
-                      onChange={(value) => updateFaq(index, { answer: value })}
-                      textarea
-                      span
-                      rows={4}
-                    />
+                    <div className="sm:col-span-2">
+                      <RichTextEditor
+                        label="Answer"
+                        value={row.answer}
+                        onChange={(value) => updateFaq(index, { answer: value })}
+                        allowedVariables={variablesForContext("country")}
+                        enableImages={false}
+                        minHeight="min-h-28"
+                      />
+                    </div>
                     <Input
                       label="Category"
                       value={row.category}
@@ -1453,24 +1450,30 @@ export function CountryForm({ countryId }: { countryId?: string }) {
                       value={row.slug}
                       onChange={(value) => updateCard(index, { slug: value })}
                     />
-                    <Input
-                      label="Short description"
-                      value={row.shortDescription}
-                      onChange={(value) =>
-                        updateCard(index, { shortDescription: value })
-                      }
-                      textarea
-                      span
-                    />
-                    <Input
-                      label="Overview"
-                      value={row.overview}
-                      onChange={(value) =>
-                        updateCard(index, { overview: value })
-                      }
-                      textarea
-                      span
-                    />
+                    <div className="sm:col-span-2">
+                      <RichTextEditor
+                        label="Short description"
+                        value={row.shortDescription}
+                        onChange={(value) =>
+                          updateCard(index, { shortDescription: value })
+                        }
+                        allowedVariables={variablesForContext("country")}
+                        enableImages={false}
+                        minHeight="min-h-24"
+                      />
+                    </div>
+                    <div className="sm:col-span-2">
+                      <RichTextEditor
+                        label="Overview"
+                        value={row.overview}
+                        onChange={(value) =>
+                          updateCard(index, { overview: value })
+                        }
+                        allowedVariables={variablesForContext("country")}
+                        enableImages={false}
+                        minHeight="min-h-28"
+                      />
+                    </div>
                     <MediaPickerDialog
                       label="Icon media"
                       value={row.iconMediaId}
@@ -1944,12 +1947,39 @@ function CheckboxGroup({
   options,
   selected,
   onToggle,
+  addLabel,
+  addPlaceholder,
+  onAdd,
 }: {
   title: string;
   options: Array<{ value: string | number; label: string }>;
   selected: string[];
   onToggle: (value: string) => void;
+  /* Only the two reusable taxonomies pass these; intake months are a fixed
+   * twelve and there is nothing to add to them. */
+  addLabel?: string;
+  addPlaceholder?: string;
+  onAdd?: (name: string) => Promise<void>;
 }) {
+  const [draft, setDraft] = useState("");
+  const [adding, setAdding] = useState(false);
+  const [addError, setAddError] = useState("");
+  const submitNew = async () => {
+    const name = draft.trim();
+    if (!name || !onAdd) return;
+    setAdding(true);
+    setAddError("");
+    try {
+      await onAdd(name);
+      setDraft("");
+    } catch (cause) {
+      setAddError(
+        cause instanceof Error ? cause.message : "Could not add that option",
+      );
+    } finally {
+      setAdding(false);
+    }
+  };
   return (
     <fieldset>
       <legend className="text-sm font-semibold text-[#344054]">{title}</legend>
@@ -1968,6 +1998,45 @@ function CheckboxGroup({
           </label>
         ))}
       </div>
+      {onAdd ? (
+        <div className="mt-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              type="text"
+              aria-label={addLabel}
+              placeholder={addPlaceholder}
+              className="min-w-0 flex-1 rounded-xl border border-[#D9E0EA] px-4 py-2 text-sm"
+              value={draft}
+              disabled={adding}
+              onChange={(event) => setDraft(event.target.value)}
+              /* Enter adds the option rather than submitting the whole
+               * Country, which is what a bare input inside this form would
+               * otherwise do. */
+              onKeyDown={(event) => {
+                if (event.key !== "Enter") return;
+                event.preventDefault();
+                void submitNew();
+              }}
+            />
+            <button
+              type="button"
+              className="rounded-xl border border-[#D9E0EA] px-4 py-2 text-sm font-semibold disabled:opacity-60"
+              disabled={adding || !draft.trim()}
+              onClick={() => void submitNew()}
+            >
+              {adding ? "Adding…" : addLabel}
+            </button>
+          </div>
+          <p className="mt-2 text-xs text-[#667085]">
+            Added options are available on every country.
+          </p>
+          {addError ? (
+            <p role="alert" className="mt-1 text-xs text-[#B42318]">
+              {addError}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
     </fieldset>
   );
 }
@@ -2082,13 +2151,16 @@ function CountrySection({
           value={row.heading}
           onChange={(value) => onChange({ heading: value })}
         />
-        <Input
-          label="Subheading"
-          value={row.subheading}
-          onChange={(value) => onChange({ subheading: value })}
-          textarea
-          span
-        />
+        <div className="sm:col-span-2">
+          <RichTextEditor
+            label="Subheading"
+            value={row.subheading}
+            onChange={(value) => onChange({ subheading: value })}
+            allowedVariables={variablesForContext("country")}
+            enableImages={false}
+            minHeight="min-h-24"
+          />
+        </div>
         <Input
           label="Display order"
           value={String(row.displayOrder)}
@@ -2125,6 +2197,86 @@ function CountrySection({
           onChange={(body) => onChange({ body })}
           variables={variablesForContext("country")}
         />
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Currency name, code and symbol are one fact, so they are chosen once. Any of
+ * the three selectors sets all three, which is what stops "Euro / USD / £" --
+ * a combination the three free-text inputs used to accept without complaint.
+ */
+function CurrencyRow({
+  code,
+  name,
+  symbol,
+  onChange,
+}: {
+  code: string;
+  name: string;
+  symbol: string;
+  onChange: (value: { code: string; name: string; symbol: string }) => void;
+}) {
+  const selected = matchCurrency({ code, name, symbol });
+  const apply = (option: CurrencyOption | null) =>
+    onChange(
+      option
+        ? { code: option.code, name: option.name, symbol: option.symbol }
+        : { code: "", name: "", symbol: "" },
+    );
+  const field = (label: string, render: (option: CurrencyOption) => string) => (
+    <label className="block text-sm font-semibold">
+      {label}
+      <select
+        className="mt-2 w-full rounded-xl border border-[#D9E0EA] bg-white px-4 py-3 font-normal outline-none focus:border-[#1657CF]"
+        value={selected?.code ?? ""}
+        onChange={(event) => apply(currencyByCode(event.target.value))}
+      >
+        <option value="">Not set</option>
+        {CURRENCY_OPTIONS.map((option) => (
+          <option key={option.code} value={option.code}>
+            {render(option)}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+  return (
+    <div className="mt-6">
+      <div className="grid gap-5 sm:grid-cols-3">
+        {field("Currency name", (option) => option.name)}
+        {field("Currency code", (option) => option.code)}
+        {field("Currency symbol", (option) => `${option.symbol} · ${option.code}`)}
+      </div>
+      {code && !selected ? (
+        <p className="mt-2 text-xs text-[#667085]">
+          {`This country stores ${code}${symbol ? ` (${symbol})` : ""}, which is not in the selectable list. Choosing a currency above will replace it.`}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+/** The flag is the ISO code rendered as regional indicators -- nothing to
+ * upload, and it cannot drift from the country's identity. */
+function FlagPreview({ iso2 }: { iso2: string }) {
+  const emoji = flagEmojiFromIso(iso2);
+  return (
+    <div className="text-sm font-semibold">
+      <span className="block">Flag</span>
+      <div
+        data-testid="country-flag-emoji"
+        className="mt-2 flex items-center gap-3 rounded-xl border border-[#D9E0EA] bg-white px-4 py-3 font-normal"
+      >
+        <span aria-hidden="true" className="text-2xl leading-none">
+          {emoji || "—"}
+        </span>
+        <span className="text-xs text-[#667085]">
+          {emoji
+            ? `Derived from ISO ${iso2.toUpperCase()}`
+            : "Set the ISO code to show this country's flag"}
+        </span>
       </div>
     </div>
   );

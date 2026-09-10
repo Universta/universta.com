@@ -48,7 +48,14 @@ function safeAlignment(tag: string) {
   return alignment === 'left' || alignment === 'center' || alignment === 'right' ? alignment : null;
 }
 
+/** Every rich-text block carries `rich-text` alongside whatever class the caller
+ * passes. Tailwind's Preflight strips list markers and flattens headings across
+ * the whole document, so authored lists and headings rendered as plain text on
+ * the public page; that class is the hook the stylesheet restores them through,
+ * without touching the site's own navigation and card lists. */
 export function RichText({ value, className }: Props) {
-  if (!/<\/?[a-z][^>]*>/i.test(value)) return <p className={className} style={{ whiteSpace: 'pre-line' }}>{value}</p>;
-  return <div className={className} dangerouslySetInnerHTML={{ __html: safeRichText(value) }} />;
+  const classes = className ? `rich-text ${className}` : 'rich-text';
+  if (!/<\/?[a-z][^>]*>/i.test(value))
+    return <p className={classes} style={{ whiteSpace: 'pre-line' }}>{value}</p>;
+  return <div className={classes} dangerouslySetInnerHTML={{ __html: safeRichText(value) }} />;
 }

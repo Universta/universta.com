@@ -212,8 +212,10 @@ export class CountryIntakeItemDto {
   @Min(1)
   @Max(12)
   applicationDeadlineMonth?: number;
-  @IsOptional() @IsString() @MaxLength(1000) applicationOpeningNote?: string;
-  @IsOptional() @IsString() @MaxLength(1000) applicationDeadlineNote?: string;
+  /* Both notes are authored in the WYSIWYG alongside `notes`, so they carry
+   * the same markup and need the same room for it. */
+  @IsOptional() @IsString() @MaxLength(2000) applicationOpeningNote?: string;
+  @IsOptional() @IsString() @MaxLength(2000) applicationDeadlineNote?: string;
   @IsOptional() @IsString() @MaxLength(2000) notes?: string;
   @Transform(integer)
   @IsOptional()

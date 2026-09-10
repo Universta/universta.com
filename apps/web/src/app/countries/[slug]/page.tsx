@@ -38,10 +38,12 @@ async function loadCities(slug: string) {
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const page = await load((await params).slug);
   if (!page) return { title: "Country not found | Universta" };
+  /* Heading and description are optional content now, so the title falls back
+   * to the country's name rather than publishing an empty <title>. */
   return resolvedMetadata(
     page.seo,
-    page.country.pageHeading,
-    page.country.shortDescription,
+    page.country.pageHeading?.trim() || page.country.name,
+    page.country.shortDescription ?? "",
     `/countries/${page.country.slug}`,
   );
 }

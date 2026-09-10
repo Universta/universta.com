@@ -56,14 +56,14 @@ test.describe.serial('catalog management', () => {
     await expect(page.getByText('Continent created.', { exact: true })).toBeVisible();
 
     await page.goto('/countries/new');
-    await page.getByLabel('Continent *').selectOption({ label: continentName });
+    await page.getByLabel('Continent', { exact: true }).selectOption({ label: continentName });
     await page.getByLabel('Country name *').fill(countryName);
     countrySlug = `${acceptanceSlugPrefix()}${countryName
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '-')}`;
-    await page.getByLabel('Slug *').fill(countrySlug);
-    await page.getByLabel('Page heading *').fill(`Study in ${countryName}`);
-    await page.getByLabel('Short description *').fill('An isolated browser E2E catalog record.');
+    await page.getByLabel('Slug', { exact: true }).fill(countrySlug);
+    await page.getByLabel('Page heading', { exact: true }).fill(`Study in ${countryName}`);
+    await page.getByLabel('Short description', { exact: true }).fill('An isolated browser E2E catalog record.');
 
     await expect(page.getByLabel(/ISO alpha-2/i)).toHaveCount(0);
     await page.getByRole('button', { name: 'Save draft', exact: true }).click();

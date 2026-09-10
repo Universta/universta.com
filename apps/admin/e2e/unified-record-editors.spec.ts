@@ -60,9 +60,24 @@ test.describe('unified record editors', () => {
     await expect(page.getByRole('heading', { name: 'FAQs' })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Consultant cards' })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'SEO' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Save draft' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Publish', exact: true })).toBeVisible();
-    await expect(page.getByRole('button', { name: /^Save (cost|work|language|statistics|intakes|SEO)/i })).toHaveCount(0);
+    /* The profile cards render from the start now, so their per-card Save
+     * buttons are on the page -- this used to pass only because the whole
+     * section was replaced by a "save first" placeholder. The rule it was
+     * written to protect still holds and is what is checked here: before the
+     * first save, Save draft and Publish are the only actions that do
+     * anything, and every per-card Save is disabled until the country exists
+     * to attach a card to. */
+    await expect(page.getByRole('heading', { name: 'Cost and budget' })).toBeVisible();
+    // Exact: the section's own h2 ends with the word "intakes" as well.
+    await expect(page.getByRole('heading', { name: 'Intakes', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Save draft' })).toBeEnabled();
+    await expect(page.getByRole('button', { name: 'Publish', exact: true })).toBeEnabled();
+    const cardSaves = page.getByRole('button', {
+      name: /^Save (cost and budget|work and visa|english requirements|statistics|intakes)$/i,
+    });
+    await expect(cardSaves).toHaveCount(5);
+    for (const save of await cardSaves.all())
+      await expect(save).toBeDisabled();
   });
 
   test('Phase 1 structured records expose only the unified draft/publish actions', async ({ page }) => {

@@ -93,14 +93,18 @@ nav { display: flex; align-items: center; gap: 28px; color: var(--body); font-si
 .editorial-steps li > span { display: grid; width: 32px; height: 32px; place-items: center; border-radius: 50%; background: var(--blue); color: white; font-size: 12px; font-weight: 800; }
 .editorial-steps strong { display: block; margin-bottom: 5px; }
 .editorial-steps p { margin: 0; color: var(--body); line-height: 1.6; }
+.editorial-steps .rich-text { color: var(--body); line-height: 1.6; }
 .editorial-section figcaption { color: var(--muted); font-size: 12px; }
 .section-media { width: 100%; max-height: 380px; margin: 18px 0; border-radius: 18px; object-fit: cover; }
 .editorial-items { display: grid; gap: 10px; margin: 18px 0; }
-.editorial-items div { display: grid; gap: 4px; padding: 16px; border-radius: 12px; background: var(--soft); }
-.editorial-items span { color: var(--body); }
+/* Direct child only: the card's own supporting copy is a rich-text block now,
+   and a descendant selector gave that inner div the card's padding and
+   background a second time. */
+.editorial-items > div { display: grid; gap: 4px; padding: 16px; border-radius: 12px; background: var(--soft); }
+.editorial-items span, .editorial-items .rich-text { color: var(--body); }
 .editorial-checklist { display: grid; gap: 10px; margin: 18px 0; padding: 0; list-style: none; }
 .editorial-checklist li { display: grid; gap: 5px; padding: 16px; border-left: 4px solid var(--blue); border-radius: 10px; background: var(--soft); }
-.editorial-checklist span { color: var(--body); line-height: 1.6; }
+.editorial-checklist span, .editorial-checklist .rich-text { color: var(--body); line-height: 1.6; }
 .editorial-faq-group { display: grid; gap: 10px; margin: 18px 0; }
 .editorial-faq-group details { padding: 16px; border-radius: 12px; background: var(--soft); }
 .editorial-faq-group summary { cursor: pointer; font-weight: 700; }
@@ -240,3 +244,42 @@ nav { display: flex; align-items: center; gap: 28px; color: var(--body); font-si
 /* Student Phase 2 catalogue actions retain the approved catalogue styling. */
 .student-catalogue-actions { display: inline-flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .student-catalogue-status { color: #155d35; font-size: 14px; font-weight: 600; }
+
+/*
+ * Authored rich text, on the public page.
+ *
+ * Tailwind's Preflight resets `ol, ul { list-style: none }` with zeroed padding
+ * and flattens `h2..h4` to `font-size: inherit`, for the whole document. The
+ * site's own navigation and card lists are built on that reset, but content an
+ * editor wrote is not: a bullet list published from the Country editor arrived
+ * as unmarked, unindented lines, and a heading read as body text.
+ *
+ * `RichText` tags every block it renders with `.rich-text`, so this restores
+ * document semantics for authored content only.
+ */
+.rich-text ul {
+  list-style: disc outside;
+  padding-left: 1.6rem;
+  margin: 0.6rem 0;
+}
+.rich-text ol {
+  list-style: decimal outside;
+  padding-left: 1.8rem;
+  margin: 0.6rem 0;
+}
+.rich-text li {
+  display: list-item;
+  margin: 0.2rem 0;
+}
+.rich-text ul ul { list-style-type: circle; }
+.rich-text ul ul ul { list-style-type: square; }
+.rich-text ol ol { list-style-type: lower-alpha; }
+.rich-text ol ol ol { list-style-type: lower-roman; }
+.rich-text h2 { font-size: 1.4rem; font-weight: 700; margin: 1rem 0 0.5rem; }
+.rich-text h3 { font-size: 1.2rem; font-weight: 700; margin: 0.9rem 0 0.45rem; }
+.rich-text h4 { font-size: 1.05rem; font-weight: 600; margin: 0.8rem 0 0.4rem; }
+.rich-text blockquote {
+  border-left: 3px solid var(--line, #e4e9f0);
+  padding-left: 0.9rem;
+  margin: 0.8rem 0;
+}

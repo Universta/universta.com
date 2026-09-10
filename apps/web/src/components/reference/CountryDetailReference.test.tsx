@@ -306,3 +306,360 @@ describe('CountryDetailReference university deduplication', () => {
     expect(html).toContain('#5');
   });
 });
+
+/**
+ * Country descriptive fields are authored in a WYSIWYG and stored as sanitised
+ * HTML. Several were rendered through plain-text JSX, so a heading or a list an
+ * editor had written printed its own tags on the page. These assert the whole
+ * chain for one representative field per profile category: stored HTML in,
+ * formatting out, never literal markup -- and that legacy plain text, which is
+ * most of the existing data, still renders unchanged.
+ */
+
+const RICH = {
+  bold: '<p>Tuition is <strong>fixed</strong> for the full course.</p>',
+  heading: '<h3>Living costs</h3><p>Shared housing in Msida.</p>',
+  list: '<ul><li>Bank statement</li><li>Sponsor letter</li></ul>',
+  link: '<p>See the <a href="https://example.org/visa">official guidance</a>.</p>',
+  unsafe: '<p>Safe</p><script>alert(1)</script><a href="javascript:alert(1)">x</a>',
+};
+
+function withProfiles(profiles: Record<string, unknown>): CountryDetailReferenceProps {
+  return build({
+    cost: null,
+    work: null,
+    language: null,
+    statistics: null,
+    intakes: [],
+    ...profiles,
+  } as unknown as CountryDetailReferenceProps['page']['profiles']);
+}
+
+/** Anything the sanitiser kept must arrive as an element, never as text. */
+function expectNoLiteralMarkup(html: string) {
+  expect(html).not.toMatch(/&lt;(p|strong|h3|ul|li|a|em)\b/i);
+}
+
+describe('CountryDetailReference rich-text rendering', () => {
+  it('renders cost notes and the cost disclaimer as formatting, not as tags', () => {
+    const html = renderToStaticMarkup(
+      <CountryDetailReference
+        {...withProfiles({
+          cost: {
+            currencyCode: 'EUR',
+            tuitionMin: '7000',
+            tuitionMax: '12000',
+            tuitionPeriod: 'PER_YEAR',
+            tuitionNotes: RICH.bold,
+            livingCostNotes: RICH.heading,
+            disclaimer: RICH.list,
+          },
+        })}
+      />,
+    );
+
+    expect(html).toContain('<strong>fixed</strong>');
+    expect(html).toContain('<h3>Living costs</h3>');
+    expect(html).toContain('<li>Bank statement</li>');
+    expectNoLiteralMarkup(html);
+  });
+
+  it('renders work summaries and the work disclaimer as formatting', () => {
+    const html = renderToStaticMarkup(
+      <CountryDetailReference
+        {...withProfiles({
+          work: {
+            partTimeAllowed: true,
+            partTimeSummary: RICH.bold,
+            postStudyWorkAvailable: true,
+            postStudyWorkMinMonths: 12,
+            postStudyWorkSummary: RICH.list,
+            immigrationPathwayStrength: 'STRONG',
+            immigrationPathwaySummary: RICH.heading,
+            visaInformation: RICH.link,
+            disclaimer: RICH.bold,
+          },
+        })}
+      />,
+    );
+
+    expect(html).toContain('<li>Bank statement</li>');
+    expect(html).toContain('<h3>Living costs</h3>');
+    expect(html).toContain('href="https://example.org/visa"');
+    expectNoLiteralMarkup(html);
+  });
+
+  it('flattens an authored summary that lands in a fact row', () => {
+    const html = renderToStaticMarkup(
+      <CountryDetailReference
+        {...withProfiles({
+          work: { visaType: 'Type D', proofOfFundsSummary: RICH.list },
+        })}
+      />,
+    );
+
+    /* A table cell, so the markup is flattened rather than rendered -- but the
+     * words still arrive and no tag is printed. */
+    expect(html).toContain('Bank statement');
+    expect(html).not.toContain('<li>Bank statement</li>');
+    expectNoLiteralMarkup(html);
+  });
+
+  it('renders language notes, waiver notes and the language disclaimer', () => {
+    const html = renderToStaticMarkup(
+      <CountryDetailReference
+        {...withProfiles({
+          language: {
+            ieltsRequirement: 'REQUIRED',
+            ieltsMinScore: '6.5',
+            generalNotes: RICH.heading,
+            languageWaiverAvailable: true,
+            waiverNotes: RICH.bold,
+            disclaimer: RICH.list,
+          },
+        })}
+      />,
+    );
+
+    expect(html).toContain('<h3>Living costs</h3>');
+    expect(html).toContain('<strong>fixed</strong>');
+    expect(html).toContain('<li>Bank statement</li>');
+    // The fixed sentence and the authored note stay separate blocks.
+    expect(html).toContain('A waiver is available for some applicants.');
+    expectNoLiteralMarkup(html);
+  });
+
+  it('renders FAQ answers and consultant card copy as formatting', () => {
+    const base = withProfiles({});
+    const html = renderToStaticMarkup(
+      <CountryDetailReference
+        {...({
+          ...base,
+          page: {
+            ...base.page,
+            faqs: [{ id: 'f1', question: 'Do I need IELTS?', answer: RICH.link, displayOrder: 0 }],
+            consultantCards: [
+              {
+                id: 'c1',
+                title: 'Talk to a counsellor',
+                shortDescription: RICH.bold,
+                isFreeConsultation: true,
+                ctaLabel: 'Book',
+                ctaUrl: '/consultants',
+              },
+            ],
+          },
+        } as unknown as CountryDetailReferenceProps)}
+      />,
+    );
+
+    expect(html).toContain('href="https://example.org/visa"');
+    expect(html).toContain('<strong>fixed</strong>');
+    expectNoLiteralMarkup(html);
+  });
+
+  it('leaves legacy plain text exactly as it reads today', () => {
+    const legacy = 'Tuition is fixed for the full course.';
+    const html = renderToStaticMarkup(
+      <CountryDetailReference
+        {...withProfiles({
+          cost: { currencyCode: 'EUR', tuitionMin: '7000', tuitionNotes: legacy },
+        })}
+      />,
+    );
+
+    expect(html).toContain(legacy);
+    expect(html).not.toContain('<strong>');
+    expectNoLiteralMarkup(html);
+  });
+
+  it('still strips unsafe markup once it renders as HTML', () => {
+    const html = renderToStaticMarkup(
+      <CountryDetailReference
+        {...withProfiles({
+          cost: { currencyCode: 'EUR', tuitionMin: '7000', tuitionNotes: RICH.unsafe },
+        })}
+      />,
+    );
+
+    expect(html).toContain('Safe');
+    expect(html).not.toContain('<script');
+    expect(html).not.toContain('javascript:');
+  });
+});
+
+/**
+ * Five WYSIWYG-backed fields were stored and editable but reached no public
+ * renderer at all: the consultant card's longer overview, and the per-test
+ * notes for IELTS, TOEFL, PTE and Duolingo. An operator writing "band minimums
+ * apply" against TOEFL was writing to nobody.
+ */
+describe('CountryDetailReference previously unrendered fields', () => {
+  const language = {
+    ieltsRequirement: 'REQUIRED',
+    ieltsMinScore: '6.5',
+    ieltsNotes: '<p>No band below <strong>6.0</strong>.</p>',
+    toeflRequirement: 'OPTIONAL',
+    toeflMinScore: '88',
+    toeflNotes: '<p>Home edition <em>accepted</em>.</p>',
+    pteRequirement: 'OPTIONAL',
+    pteMinScore: '62',
+    pteNotes: '<ul><li>Academic only</li></ul>',
+    duolingoRequirement: 'OPTIONAL',
+    duolingoMinScore: '115',
+    duolingoNotes: '<p>Reviewed <strong>case by case</strong>.</p>',
+  };
+
+  it('renders every per-test note as formatting, against its own test', () => {
+    const html = renderToStaticMarkup(
+      <CountryDetailReference {...withProfiles({ language })} />,
+    );
+
+    expect(html).toContain('<strong>6.0</strong>');
+    expect(html).toContain('<em>accepted</em>');
+    expect(html).toContain('<li>Academic only</li>');
+    expect(html).toContain('<strong>case by case</strong>');
+    expectNoLiteralMarkup(html);
+  });
+
+  it('renders a test note only for the test that has one', () => {
+    const html = renderToStaticMarkup(
+      <CountryDetailReference
+        {...withProfiles({
+          language: {
+            ieltsRequirement: 'REQUIRED',
+            ieltsMinScore: '6.5',
+            ieltsNotes: '<p>Only IELTS has a note.</p>',
+            toeflRequirement: 'OPTIONAL',
+            toeflMinScore: '88',
+          },
+        })}
+      />,
+    );
+
+    expect(html).toContain('Only IELTS has a note.');
+    // One note in, one note out -- no empty note blocks for the other tests.
+    expect(html.split('test-note').length - 1).toBe(1);
+  });
+
+  it('renders the consultant card overview under its blurb', () => {
+    const base = withProfiles({});
+    const html = renderToStaticMarkup(
+      <CountryDetailReference
+        {...({
+          ...base,
+          page: {
+            ...base.page,
+            consultantCards: [
+              {
+                id: 'c1',
+                title: 'Talk to a counsellor',
+                shortDescription: '<p>Free 30-minute session.</p>',
+                overview: '<h3>What we cover</h3><ul><li>Course choice</li></ul>',
+                isFreeConsultation: true,
+                ctaLabel: 'Book',
+                ctaUrl: '/consultants',
+              },
+            ],
+          },
+        } as unknown as CountryDetailReferenceProps)}
+      />,
+    );
+
+    expect(html).toContain('Free 30-minute session.');
+    expect(html).toContain('<h3>What we cover</h3>');
+    expect(html).toContain('<li>Course choice</li>');
+    expectNoLiteralMarkup(html);
+  });
+
+  it('renders no overview block for a card that has none', () => {
+    const base = withProfiles({});
+    const html = renderToStaticMarkup(
+      <CountryDetailReference
+        {...({
+          ...base,
+          page: {
+            ...base.page,
+            consultantCards: [
+              {
+                id: 'c1',
+                title: 'Talk to a counsellor',
+                shortDescription: 'Plain blurb.',
+                overview: null,
+                isFreeConsultation: false,
+                ctaLabel: 'Book',
+                ctaUrl: '/consultants',
+              },
+            ],
+          },
+        } as unknown as CountryDetailReferenceProps)}
+      />,
+    );
+
+    expect(html).toContain('Plain blurb.');
+    expect(html).not.toContain('cons-overview');
+  });
+
+  it('keeps legacy plain notes and strips unsafe note markup', () => {
+    const html = renderToStaticMarkup(
+      <CountryDetailReference
+        {...withProfiles({
+          language: {
+            ieltsRequirement: 'REQUIRED',
+            ieltsNotes: 'No band below 6.0.',
+            toeflRequirement: 'OPTIONAL',
+            toeflNotes: '<p>ok</p><script>alert(1)</script>',
+          },
+        })}
+      />,
+    );
+
+    expect(html).toContain('No band below 6.0.');
+    expect(html).toContain('ok');
+    expect(html).not.toContain('<script');
+    expectNoLiteralMarkup(html);
+  });
+});
+
+/**
+ * The CMS rule end to end, on the surface that matters: a country carrying
+ * nothing but a name still has to render a page. The admin browser test covers
+ * the same ground, but it cannot run against the restored production-copy
+ * database, so the public half is pinned here where it does run.
+ */
+describe('CountryDetailReference name-only country', () => {
+  function nameOnly(): CountryDetailReferenceProps {
+    const base = withProfiles({});
+    return {
+      ...base,
+      page: {
+        ...base.page,
+        country: {
+          ...base.page.country,
+          name: 'Malta Test Local',
+          slug: 'malta-test-local',
+          pageHeading: null,
+          shortDescription: null,
+          continent: null,
+          overview: null,
+          tagline: null,
+        },
+      },
+    } as unknown as CountryDetailReferenceProps;
+  }
+
+  it('renders with no continent, heading, description, ISO or currency', () => {
+    const html = renderToStaticMarkup(<CountryDetailReference {...nameOnly()} />);
+
+    // The name carries the page when no heading was written.
+    expect(html).toContain('Malta Test Local');
+    expect(html).toContain('<h1>Malta Test Local</h1>');
+    expect(html).not.toContain('undefined');
+    expect(html).not.toContain('null');
+  });
+
+  it('renders no empty lede where a short description would go', () => {
+    const html = renderToStaticMarkup(<CountryDetailReference {...nameOnly()} />);
+    expect(html).not.toContain('class="lede"');
+  });
+});

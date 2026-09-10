@@ -7,6 +7,7 @@ import {
 import { Prisma } from '../../generated/prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { writeAudit } from '../../catalog/catalog.audit';
+import { sanitizeRichText } from '../../common/rich-text';
 import type { AuthenticatedRequest } from '../../auth/auth.types';
 import {
   PROFILE_AUDIT_ACTIONS,
@@ -103,6 +104,19 @@ function optionalText(value: string | null | undefined): string | undefined {
   return value === undefined || value === null ? undefined : value.trim();
 }
 
+/**
+ * Descriptive profile copy is authored in the WYSIWYG and published as HTML, so
+ * it is sanitised on the way in. The editor cleans as a convenience; this is
+ * the boundary -- these routes accept whatever a client sends them, editor or
+ * not, and the same subset has to survive either way.
+ */
+function richText(value: string | null | undefined): string | undefined {
+  const trimmed = optionalText(value);
+  return trimmed === undefined
+    ? undefined
+    : (sanitizeRichText(trimmed) as string);
+}
+
 function url(value: string | null | undefined): string | undefined {
   if (value === null) return undefined;
   if (value === undefined || value === '') return value;
@@ -192,7 +206,12 @@ export class CountryProfilesService {
         id: countryId,
         status: 'PUBLISHED',
         deletedAt: null,
-        continent: { status: 'ACTIVE', deletedAt: null },
+        /* Published without a region is a valid state now; the gate is about
+         * not surfacing a country filed under an archived region. */
+        OR: [
+          { continentId: null },
+          { continent: { status: 'ACTIVE', deletedAt: null } },
+        ],
       },
       include: PROFILE_INCLUDE,
     });
@@ -269,7 +288,16 @@ export class CountryProfilesService {
       dto.expectedUpdatedAt,
       'COUNTRY_COST_PROFILE_STALE_VERSION',
     );
-    const data = this.costData(dto);
+    /* The cost card stopped asking for a currency: amounts are published in
+     * the Country's own currency, and a second copy on this profile could only
+     * disagree with it. The column stays, and an importer may still set it
+     * explicitly, but a card saved without one inherits rather than being
+     * refused -- otherwise the editor demands a field it no longer shows. */
+    const country = await this.country(countryId);
+    const data = this.costData(dto, {
+      code: country.currencyCode,
+      symbol: country.currencySymbol,
+    });
     const row = current
       ? await this.prisma.countryCostProfile.update({
           where: { id: current.id },
@@ -625,7 +653,10 @@ export class CountryProfilesService {
     );
   }
 
-  private costData(dto: CostProfileDto): Record<string, unknown> {
+  private costData(
+    dto: CostProfileDto,
+    inherited: { code: string | null; symbol: string | null },
+  ): Record<string, unknown> {
     const data: Record<string, unknown> = {};
     const money = [
       'tuitionMin',
@@ -682,19 +713,27 @@ export class CountryProfilesService {
         'PROFILE_CURRENCY_INVALID',
         'currencyCode must be a three-letter code',
       );
-    if (!dto.currencyCode?.trim())
-      throw bad('PROFILE_CURRENCY_REQUIRED', 'currencyCode is required');
+    const currencyCode = dto.currencyCode?.trim() || inherited.code?.trim();
+    if (!currencyCode)
+      throw bad(
+        'PROFILE_CURRENCY_REQUIRED',
+        'Set the country currency before publishing cost amounts',
+      );
     Object.assign(data, {
-      currencyCode: dto.currencyCode.trim().toUpperCase(),
-      currencySymbol: optionalText(dto.currencySymbol),
+      currencyCode: currencyCode.toUpperCase(),
+      /* The symbol follows whichever currency was used, so an inherited code
+       * never lands beside the previous currency's symbol. */
+      currencySymbol: dto.currencyCode?.trim()
+        ? optionalText(dto.currencySymbol)
+        : (optionalText(dto.currencySymbol) ?? inherited.symbol ?? undefined),
       tuitionPeriod: dto.tuitionPeriod,
-      tuitionNotes: optionalText(dto.tuitionNotes),
+      tuitionNotes: richText(dto.tuitionNotes),
       livingCostPeriod: dto.livingCostPeriod,
-      livingCostNotes: optionalText(dto.livingCostNotes),
+      livingCostNotes: richText(dto.livingCostNotes),
       budgetBand: dto.budgetBand,
       applicableYear: dto.applicableYear,
       sourceReference: url(dto.sourceReference),
-      disclaimer: optionalText(dto.disclaimer),
+      disclaimer: richText(dto.disclaimer),
       verifiedAt: verifiedAt(
         (dto as unknown as { verifiedAt?: string }).verifiedAt,
       ),
@@ -777,23 +816,23 @@ export class CountryProfilesService {
       partTimeAllowed: dto.partTimeAllowed,
       partTimeHoursPerWeek: weekly,
       partTimeHoursDuringBreaks: breaks,
-      partTimeSummary: optionalText(dto.partTimeSummary),
+      partTimeSummary: richText(dto.partTimeSummary),
       postStudyWorkAvailable: dto.postStudyWorkAvailable,
       postStudyWorkMinMonths: dto.postStudyWorkMinMonths,
       postStudyWorkMaxMonths: dto.postStudyWorkMaxMonths,
-      postStudyWorkSummary: optionalText(dto.postStudyWorkSummary),
+      postStudyWorkSummary: richText(dto.postStudyWorkSummary),
       immigrationPathwayStrength: dto.immigrationPathwayStrength,
-      immigrationPathwaySummary: optionalText(dto.immigrationPathwaySummary),
+      immigrationPathwaySummary: richText(dto.immigrationPathwaySummary),
       visaSuccessBand: dto.visaSuccessBand,
       visaSuccessPercentage: percentage,
-      visaInformation: optionalText(dto.visaInformation),
+      visaInformation: richText(dto.visaInformation),
       visaType: optionalText(dto.visaType),
       visaFee,
       visaFeeCurrencyCode: optionalText(dto.visaFeeCurrencyCode)?.toUpperCase(),
       visaProcessingTime: optionalText(dto.visaProcessingTime),
-      proofOfFundsSummary: optionalText(dto.proofOfFundsSummary),
+      proofOfFundsSummary: richText(dto.proofOfFundsSummary),
       sourceReference,
-      disclaimer: optionalText(dto.disclaimer),
+      disclaimer: richText(dto.disclaimer),
       verifiedAt: verification,
     };
   }
@@ -870,18 +909,18 @@ export class CountryProfilesService {
     return {
       ...data,
       ieltsRequirement: dto.ieltsRequirement,
-      ieltsNotes: optionalText(dto.ieltsNotes),
+      ieltsNotes: richText(dto.ieltsNotes),
       pteRequirement: dto.pteRequirement,
-      pteNotes: optionalText(dto.pteNotes),
+      pteNotes: richText(dto.pteNotes),
       toeflRequirement: dto.toeflRequirement,
-      toeflNotes: optionalText(dto.toeflNotes),
+      toeflNotes: richText(dto.toeflNotes),
       duolingoRequirement: dto.duolingoRequirement,
-      duolingoNotes: optionalText(dto.duolingoNotes),
+      duolingoNotes: richText(dto.duolingoNotes),
       languageWaiverAvailable: dto.languageWaiverAvailable,
-      waiverNotes: optionalText(dto.waiverNotes),
-      generalNotes: optionalText(dto.generalNotes),
+      waiverNotes: richText(dto.waiverNotes),
+      generalNotes: richText(dto.generalNotes),
       sourceReference,
-      disclaimer: optionalText(dto.disclaimer),
+      disclaimer: richText(dto.disclaimer),
       verifiedAt: verification,
     };
   }
@@ -897,9 +936,9 @@ export class CountryProfilesService {
       availabilityStatus: item.availabilityStatus ?? 'AVAILABLE',
       applicationOpeningMonth: item.applicationOpeningMonth,
       applicationDeadlineMonth: item.applicationDeadlineMonth,
-      applicationOpeningNote: optionalText(item.applicationOpeningNote),
-      applicationDeadlineNote: optionalText(item.applicationDeadlineNote),
-      notes: optionalText(item.notes),
+      applicationOpeningNote: richText(item.applicationOpeningNote),
+      applicationDeadlineNote: richText(item.applicationDeadlineNote),
+      notes: richText(item.notes),
       displayOrder: item.displayOrder ?? 0,
     };
   }

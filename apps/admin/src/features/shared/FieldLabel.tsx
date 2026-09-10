@@ -25,15 +25,13 @@ const countryHelpKeys: Record<string, string> = {
   'Short description': 'countries.shortDescription',
 };
 
-const countryRequiredLabels = new Set([
-  'Continent',
-  'Country name',
-  'Slug',
-  'ISO alpha-2',
-  'ISO alpha-3',
-  'Page heading',
-  'Short description',
-]);
+/* Country is edited as a CMS record: the name is the only thing an author must
+ * supply, and everything else is content they fill in over time. This set used
+ * to carry the continent, slug, both ISO codes, the page heading and the short
+ * description, so those fields kept showing a red asterisk long after the API
+ * stopped requiring them -- a marker that told the operator to fill in
+ * something nothing would ever ask for. */
+const countryRequiredLabels = new Set(['Country name']);
 
 // These Course fields are publishing requirements. They are deliberately a
 // visual requirement only here: admins may still leave them blank while saving

@@ -459,7 +459,12 @@ describe('country structured profiles (e2e)', () => {
     }
   });
 
-  it('names the fields a publish is still missing rather than failing blankly', async () => {
+  it('publishes a country whose name it does not recognise, ISO codes and all', async () => {
+    /* This used to assert the opposite: publishing was refused until ISO alpha-2
+     * and alpha-3 were present, which a name the metadata table does not know
+     * can never supply. Country is a CMS record now -- the name is the only
+     * thing required -- so an unrecognised country publishes and the codes stay
+     * empty until somebody fills them in. */
     const slug = `unknown-${Date.now()}`;
     const continent = await prisma.continent.findFirstOrThrow({
       where: { status: 'ACTIVE', deletedAt: null },
@@ -468,29 +473,31 @@ describe('country structured profiles (e2e)', () => {
       continentId: continent.id,
       name: `Not A Real Country ${Date.now()}`,
       slug,
-      pageHeading: 'Study somewhere',
-      shortDescription: 'Fixture for the readiness message.',
     }).expect(201);
     const id = String(record(created).id);
     try {
+      expect(record(created).iso2Code ?? null).toBeNull();
+      expect(record(created).pageHeading ?? null).toBeNull();
+
       const response = await admin(
         'post',
         `/api/v1/admin/countries/${id}/publish`,
         { expectedUpdatedAt: record(created).updatedAt },
       );
-      expect(response.status).toBe(422);
-      expect(code(response)).toBe('COUNTRY_NOT_READY');
-      /* The Admin routes these back to the individual fields, so they have to
-       * keep naming them. */
-      const envelope = response.body as {
-        error?: { details?: Array<{ field?: string }> };
-      };
-      const details = envelope.error?.details;
-      expect(details?.map((row) => row.field)).toEqual(
-        expect.arrayContaining(['iso2Code', 'iso3Code']),
-      );
+      // Publish is a POST and answers 201, the same as everywhere else.
+      expect(response.status).toBe(201);
+      expect(record(response).status).toBe('PUBLISHED');
     } finally {
       await prisma.country.deleteMany({ where: { id } }).catch(() => undefined);
     }
+  });
+
+  it('still refuses to publish a country with no name at all', async () => {
+    /* The one rule that survives: the name is what the public page is about,
+     * so it is the single thing readiness insists on. */
+    const response = await admin('post', '/api/v1/admin/countries', {
+      name: '   ',
+    });
+    expect(response.status).toBe(400);
   });
 });

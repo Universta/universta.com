@@ -166,6 +166,43 @@ export function listCountries(
   });
 }
 
+/* Country features and accepted English tests are reusable master data: an
+ * option added here is offered on every Country, not just the one being
+ * edited. The Admin reads the list rather than carrying its own copy, which is
+ * what it used to do -- two hand-maintained arrays, one here and one in the
+ * API, that could and did drift apart. */
+export type CountryTaxonomyOption = {
+  code: string;
+  name: string;
+  status: string;
+  displayOrder: number;
+  isSystem: boolean;
+};
+
+export function listCountryFeatures(signal?: AbortSignal) {
+  return request<CountryTaxonomyOption[]>("/api/v1/admin/country-features", {
+    signal,
+  });
+}
+export function createCountryFeature(data: { name: string }) {
+  return request<CountryTaxonomyOption>("/api/v1/admin/country-features", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+export function listCountryEnglishTests(signal?: AbortSignal) {
+  return request<CountryTaxonomyOption[]>(
+    "/api/v1/admin/country-english-tests",
+    { signal },
+  );
+}
+export function createCountryEnglishTest(data: { name: string }) {
+  return request<CountryTaxonomyOption>("/api/v1/admin/country-english-tests", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
 export function listCountryTags() {
   return request<CountryTagRecord[]>("/api/v1/admin/country-tags");
 }

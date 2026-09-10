@@ -4,6 +4,7 @@ import {
 } from './country-metadata';
 import { CountriesService } from './countries.service';
 import type { CountryDerivedService } from './country-derived.service';
+import type { CountryTaxonomyService } from './country-taxonomy.service';
 import type { PrismaService } from '../prisma/prisma.service';
 
 describe('country metadata', () => {
@@ -28,6 +29,7 @@ describe('country metadata', () => {
     const service = new CountriesService(
       {} as PrismaService,
       {} as CountryDerivedService,
+      {} as CountryTaxonomyService,
     ) as unknown as {
       metadataOrLegacyIdentity: (
         name: string,
