@@ -21,14 +21,6 @@ import { sanitizeEditorHtml, type RichTextEditorProps } from './RichTextEditor';
  * Browser-only, so it is loaded through `RichTextEditor` with SSR disabled.
  */
 
-/** The stored tag set, kept identical to the API's `sanitizeRichText` and the
- * public `RichText` renderer. Jodit is configured to emit only these, so what
- * the editor produces is already in contract and no per-keystroke rewrite is
- * needed -- a rewrite would also defeat the wrapper's echo guard and reset the
- * caret on every character. */
-const ALLOWED = 'p,br,strong,b,em,i,u,s,strike,ul,ol,li,a,blockquote,h2,h3,h4,img';
-
-
 export function JoditRichText({
   label,
   value,
@@ -89,6 +81,13 @@ export function JoditRichText({
     area.setAttribute('role', 'textbox');
     area.setAttribute('aria-multiline', 'true');
     area.setAttribute('aria-label', nameRef.current);
+    /* Jodit's single insertion point for pasted and dropped content. Reducing
+     * the markup to the stored subset here means what the author sees after a
+     * paste is what will be saved -- and, unlike Jodit's own tag filter, an
+     * unknown wrapper loses its tags rather than its text. */
+    editor.e.on('beforePasteInsert', (html: unknown) =>
+      typeof html === 'string' ? sanitizeEditorHtml(html) : html,
+    );
     setReady(true);
   }, []);
   const handleChange = useCallback((next: string) => {
@@ -209,7 +208,21 @@ export function JoditRichText({
       defaultActionOnPaste: 'insert_as_html' as const,
       processPasteHTML: true,
       cleanHTML: {
-        allowTags: ALLOWED,
+        /* `allowTags` is deliberately not set here.
+         *
+         * Jodit enforces it by DELETING any element outside the list, together
+         * with everything inside it -- it does not unwrap. Every real paste
+         * arrives wrapped in markup outside the stored subset (`div`, `span`,
+         * `font`, a `meta` charset), so 300ms after pasting, Jodit's cleanup
+         * pass removed the wrapper and took the author's text with it: the
+         * content appeared, then vanished. Pasting markup that happened to be
+         * inside the subset survived, which is why it looked intermittent.
+         *
+         * The subset is enforced on the way in instead, by the
+         * `beforePasteInsert` handler, which drops unknown tags but keeps
+         * their text. Jodit's own
+         * defaults still remove scripts, iframes, objects, embeds and event
+         * attributes, and the API sanitises every write path regardless. */
         cleanOnPaste: true,
         removeEmptyElements: false,
         fillEmptyParagraph: false,
