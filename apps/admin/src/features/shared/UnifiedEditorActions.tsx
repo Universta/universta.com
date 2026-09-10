@@ -9,6 +9,7 @@ type Props = {
   publishLabel?: string;
   savingIntent?: 'draft' | 'publish' | null;
   published?: boolean;
+  sticky?: boolean;
 };
 
 export function UnifiedEditorActions({
@@ -18,9 +19,12 @@ export function UnifiedEditorActions({
   publishLabel = 'Publish',
   savingIntent = null,
   published = false,
+  sticky = true,
 }: Props) {
   return (
-    <div className="sticky bottom-4 z-30 mt-8 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[#D9E0EA] bg-white/95 p-4 shadow-[0_14px_40px_rgba(15,23,42,0.12)] backdrop-blur">
+    <div
+      className={`${sticky ? 'sticky bottom-4 z-30 bg-white/95 shadow-[0_14px_40px_rgba(15,23,42,0.12)] backdrop-blur' : 'bg-white'} mt-8 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[#D9E0EA] p-4`}
+    >
       <div>
         <p className="text-sm font-semibold text-[#1D2939]">One record, one save flow</p>
         <p className="mt-1 text-xs text-[#667085]">

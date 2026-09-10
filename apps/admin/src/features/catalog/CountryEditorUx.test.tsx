@@ -180,13 +180,21 @@ describe('country editor content fields', () => {
 });
 
 describe('country editor actions', () => {
-  it('keeps Save draft and Publish side by side in a sticky bar', async () => {
+  it('closes the form with the actions, in normal flow rather than floating', async () => {
     await openEditor();
 
     const publish = screen.getByRole('button', { name: 'Publish' });
     const bar = publish.parentElement?.parentElement as HTMLElement;
-    expect(bar.className).toContain('sticky');
+    /* The bar used to float above the form. It sits at the end of the record
+     * now, so nothing is covered by it and the last field is reachable. */
+    expect(bar.className).not.toContain('sticky');
+    expect(bar.className).not.toContain('fixed');
     expect(bar.className).toContain('flex');
+
+    // Last thing in the form: every field and section comes before it.
+    const form = publish.closest('form') as HTMLElement;
+    expect(form.lastElementChild).toBe(bar);
+
     // Same row, in the agreed order.
     const row = publish.parentElement as HTMLElement;
     expect(row.className).toContain('flex');

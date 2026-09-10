@@ -544,9 +544,24 @@ test.describe.serial('country client contract, end to end', () => {
     await expect(page.getByTestId('country-flag-emoji')).toContainText('\u{1F1F2}\u{1F1F9}');
     await field(page, 'ISO').fill('');
 
-    // Save draft stays put and says so; publish is the horizontal partner.
+    /* Save draft stays put and says so; publish is the horizontal partner. The
+     * pair closes the form in normal flow rather than floating over it, so the
+     * last field stays reachable and nothing sits under the bar. */
     const actions = page.getByRole('button', { name: 'Publish', exact: true }).locator('xpath=../..');
-    await expect(actions).toHaveClass(/sticky/);
+    await expect(actions).not.toHaveClass(/sticky/);
+    // Nothing follows it, and it scrolls away with the rest of the record
+    // rather than hovering over the field the operator is filling in.
+    expect(
+      await actions.evaluate((el) => {
+        const form = el.closest('form') as HTMLElement;
+        window.scrollTo(0, 0);
+        return {
+          last: form.lastElementChild === el,
+          position: getComputedStyle(el).position,
+          onScreenAtTop: el.getBoundingClientRect().top < window.innerHeight,
+        };
+      }),
+    ).toEqual({ last: true, position: 'static', onScreenAtTop: false });
 
     /* The whole point of the CMS rule: a country that carries nothing but a
      * name has to reach the public site, not merely save. */

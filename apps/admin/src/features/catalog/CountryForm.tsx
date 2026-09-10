@@ -1560,6 +1560,7 @@ export function CountryForm({ countryId }: { countryId?: string }) {
           busy={saving}
           savingIntent={savingIntent}
           published={record?.status === "PUBLISHED"}
+          sticky={false}
         />
       </form>
     </section>
