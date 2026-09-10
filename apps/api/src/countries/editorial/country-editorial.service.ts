@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '../../generated/prisma/client';
 import { writeAudit } from '../../catalog/catalog.audit';
+import { isUniqueConstraintError } from '../../catalog/catalog.constants';
 import type { AuthenticatedRequest } from '../../auth/auth.types';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CountriesService } from '../countries.service';
@@ -242,6 +243,23 @@ export function validateEditorialBody(
     throw bad('EDITORIAL_BODY_INVALID', 'Media caption is invalid');
 }
 
+/** A country's section keys are unique, which the database enforces. Now that
+ * an author writes the key themselves -- and a new section starts blank -- two
+ * sections can collide, and a raw constraint violation says nothing about which
+ * field to fix. */
+async function withSectionKeyConflict<T>(run: () => Promise<T>): Promise<T> {
+  try {
+    return await run();
+  } catch (error: unknown) {
+    if (isUniqueConstraintError(error))
+      throw bad(
+        'COUNTRY_CONTENT_SECTION_KEY_CONFLICT',
+        'Another section on this country already uses that section key',
+      );
+    throw error;
+  }
+}
+
 function sanitizeEditorialBody(
   type: string,
   value: Record<string, unknown> | undefined,
@@ -416,29 +434,31 @@ export class CountryEditorialService {
      * containing a tag. Eyebrow, heading and CTA label stay short plain labels. */
     assertSafeCopy([dto.eyebrow, dto.heading, dto.ctaLabel]);
     await this.mediaIds([dto.primaryMediaId, dto.secondaryMediaId]);
-    const row = await this.prisma.countryContentSection.create({
-      data: {
-        countryId,
-        sectionKey: dto.sectionKey,
-        sectionType: dto.sectionType,
-        eyebrow: trim(dto.eyebrow),
-        heading: trim(dto.heading),
-        subheading: sanitizeRichText(trim(dto.subheading)) as
-          string | undefined,
-        bodyJson: inputJson(bodyJson),
-        primaryMediaId: dto.primaryMediaId,
-        secondaryMediaId: dto.secondaryMediaId,
-        ctaLabel: trim(dto.ctaLabel),
-        ctaUrl: trim(dto.ctaUrl),
-        configurationJson: inputJson(dto.configurationJson),
-        displayOrder: dto.displayOrder ?? 0,
-        status: dto.status ?? 'ACTIVE',
-      },
-      include: {
-        primaryMedia: { select: mediaSelect },
-        secondaryMedia: { select: mediaSelect },
-      },
-    });
+    const row = await withSectionKeyConflict(() =>
+      this.prisma.countryContentSection.create({
+        data: {
+          countryId,
+          sectionKey: dto.sectionKey ?? '',
+          sectionType: dto.sectionType,
+          eyebrow: trim(dto.eyebrow),
+          heading: trim(dto.heading),
+          subheading: sanitizeRichText(trim(dto.subheading)) as
+            string | undefined,
+          bodyJson: inputJson(bodyJson),
+          primaryMediaId: dto.primaryMediaId,
+          secondaryMediaId: dto.secondaryMediaId,
+          ctaLabel: trim(dto.ctaLabel),
+          ctaUrl: trim(dto.ctaUrl),
+          configurationJson: inputJson(dto.configurationJson),
+          displayOrder: dto.displayOrder ?? 0,
+          status: dto.status ?? 'ACTIVE',
+        },
+        include: {
+          primaryMedia: { select: mediaSelect },
+          secondaryMedia: { select: mediaSelect },
+        },
+      }),
+    );
     await writeAudit(
       this.prisma,
       request,
@@ -478,29 +498,31 @@ export class CountryEditorialService {
      * containing a tag. Eyebrow, heading and CTA label stay short plain labels. */
     assertSafeCopy([dto.eyebrow, dto.heading, dto.ctaLabel]);
     await this.mediaIds([dto.primaryMediaId, dto.secondaryMediaId]);
-    const row = await this.prisma.countryContentSection.update({
-      where: { id },
-      data: {
-        sectionKey: dto.sectionKey,
-        sectionType: dto.sectionType,
-        eyebrow: trim(dto.eyebrow),
-        heading: trim(dto.heading),
-        subheading: sanitizeRichText(trim(dto.subheading)) as
-          string | undefined,
-        bodyJson: inputJson(bodyJson),
-        primaryMediaId: dto.primaryMediaId,
-        secondaryMediaId: dto.secondaryMediaId,
-        ctaLabel: trim(dto.ctaLabel),
-        ctaUrl: trim(dto.ctaUrl),
-        configurationJson: inputJson(dto.configurationJson),
-        displayOrder: dto.displayOrder ?? 0,
-        status: dto.status ?? current.status,
-      },
-      include: {
-        primaryMedia: { select: mediaSelect },
-        secondaryMedia: { select: mediaSelect },
-      },
-    });
+    const row = await withSectionKeyConflict(() =>
+      this.prisma.countryContentSection.update({
+        where: { id },
+        data: {
+          sectionKey: dto.sectionKey ?? '',
+          sectionType: dto.sectionType,
+          eyebrow: trim(dto.eyebrow),
+          heading: trim(dto.heading),
+          subheading: sanitizeRichText(trim(dto.subheading)) as
+            string | undefined,
+          bodyJson: inputJson(bodyJson),
+          primaryMediaId: dto.primaryMediaId,
+          secondaryMediaId: dto.secondaryMediaId,
+          ctaLabel: trim(dto.ctaLabel),
+          ctaUrl: trim(dto.ctaUrl),
+          configurationJson: inputJson(dto.configurationJson),
+          displayOrder: dto.displayOrder ?? 0,
+          status: dto.status ?? current.status,
+        },
+        include: {
+          primaryMedia: { select: mediaSelect },
+          secondaryMedia: { select: mediaSelect },
+        },
+      }),
+    );
     await writeAudit(
       this.prisma,
       request,

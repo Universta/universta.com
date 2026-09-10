@@ -16,7 +16,6 @@ import {
   ValidatorConstraintInterface,
 } from 'class-validator';
 import {
-  COUNTRY_SECTION_KEYS,
   COUNTRY_SECTION_TYPES,
   EDITORIAL_STATUSES,
 } from './editorial.constants';
@@ -58,8 +57,13 @@ export class EditorialVersionDto {
 }
 
 export class ContentSectionDto extends EditorialVersionDto {
-  @IsIn(COUNTRY_SECTION_KEYS)
-  sectionKey!: string;
+  /* A free-text identifier, not one of a fixed set. The public page has
+   * dedicated renderers for the conventional keys in `COUNTRY_SECTION_KEYS`
+   * and falls back to the section type for anything else, so refusing a key
+   * outside that list only stopped authors naming their own sections -- it
+   * never protected the rendering. Keys stay unique per country, which the
+   * database enforces and the service reports by name. */
+  @IsOptional() @IsString() @MaxLength(100) sectionKey?: string;
 
   @IsIn(COUNTRY_SECTION_TYPES)
   sectionType!: string;

@@ -43,7 +43,6 @@ import type {
 import { MediaPickerDialog } from "./editorial/MediaPickerDialog";
 import { TypedBodyEditor } from "./editorial/TypedBodyEditor";
 import {
-  SECTION_KEYS,
   SECTION_TYPES,
   blankSection,
   bodyForApi,
@@ -1160,11 +1159,13 @@ export function CountryForm({ countryId }: { countryId?: string }) {
               onBlur={() => checkField("officialLanguage", core.officialLanguage)}
               onChange={(value) => setCoreField("officialLanguage", value)}
             />
-            <BooleanField
-              label="Featured"
-              checked={core.isFeatured}
-              onChange={(value) => setCoreField("isFeatured", value)}
-            />
+            {/* Featured is not an author's decision, so the checkbox is gone
+              * from this editor. The value itself is untouched: it is still
+              * loaded from the record and sent back on every save, so a
+              * country that is already featured stays featured and the public
+              * `?featured=` filter keeps answering the same way. It is a grid
+              * cell that simply is not filled, so nothing is left holding a
+              * gap where it used to be. */}
           </div>
           <CurrencyRow
             code={core.currencyCode}
@@ -2125,13 +2126,15 @@ function CountrySection({
         </button>
       </div>
       <div className="mt-4 grid gap-4 sm:grid-cols-2">
-        <Select
+        {/* A free-text identifier, not a chosen one. The public page has
+          * dedicated renderers for a set of conventional keys and falls back
+          * to the section type for anything else, so an author is no longer
+          * limited to that set -- and a key they invent still anchors,
+          * orders and renders. */}
+        <Input
           label="Section key"
           value={row.sectionKey}
-          onChange={(value) =>
-            onChange({ sectionKey: value as SectionRow["sectionKey"] })
-          }
-          options={SECTION_KEYS.map((id) => ({ id, label: id }))}
+          onChange={(value) => onChange({ sectionKey: value })}
         />
         <Select
           label="Section type"
