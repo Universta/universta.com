@@ -55,6 +55,7 @@ const SAFE_ERROR_MESSAGES: Record<string, string> = {
   COUNTRY_FAQ_NOT_FOUND: 'FAQ not found',
   COUNTRY_SEO_STALE_VERSION: 'SEO metadata changed in another session. Reload before saving',
   COUNTRY_CONTENT_SECTION_STALE_VERSION: 'Content section changed in another session. Reload before saving',
+  COUNTRY_CONTENT_SECTION_KEY_CONFLICT: 'Another section on this country already uses that section key',
   COUNTRY_FAQ_STALE_VERSION: 'FAQ changed in another session. Reload before saving',
   COUNTRY_CONSULTANT_CARD_STALE_VERSION: 'Consultant card changed in another session. Reload before saving',
   EDITORIAL_MEDIA_INVALID: 'Selected media is not available',

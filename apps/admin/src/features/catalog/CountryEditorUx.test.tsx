@@ -419,3 +419,83 @@ describe('country editor required marker', () => {
     expect(marked).toEqual(['Country name *']);
   });
 });
+
+/**
+ * The section key stopped being a chosen one. The public page has dedicated
+ * renderers for a set of conventional keys and falls back to the section type
+ * for anything else, so limiting authors to that set never protected the
+ * rendering -- it only stopped them naming their own sections.
+ */
+describe('country editor section key', () => {
+  it('takes any key as free text, and starts a new section blank', async () => {
+    await openEditor();
+
+    await userEvent.click(screen.getByRole('button', { name: /add section/i }));
+    const key = await screen.findByLabelText(/^Section key/);
+
+    expect(key.tagName).toBe('INPUT');
+    expect(key).toHaveValue('');
+
+    await userEvent.type(key, 'my-own-section');
+    expect(key).toHaveValue('my-own-section');
+  });
+
+  it('loads a stored key back for editing, whatever it is', async () => {
+    mocks.getCountryEditorial.mockResolvedValue({
+      data: {
+        sections: [
+          {
+            id: 'section-1',
+            sectionKey: 'a-key-nobody-listed',
+            sectionType: 'RICH_TEXT',
+            eyebrow: null,
+            heading: 'Section heading',
+            subheading: null,
+            bodyJson: { paragraphs: ['Body.'] },
+            primaryMedia: null,
+            secondaryMedia: null,
+            ctaLabel: null,
+            ctaUrl: null,
+            configurationJson: null,
+            displayOrder: 0,
+            status: 'ACTIVE',
+            createdAt: '',
+            updatedAt: '',
+          },
+        ],
+        faqs: [],
+        seo: null,
+        consultantCards: [],
+        media: [],
+      },
+    });
+    await openEditor();
+
+    expect(await screen.findByLabelText(/^Section key/)).toHaveValue('a-key-nobody-listed');
+  });
+});
+
+/**
+ * Featured is not an author's decision, so the control is gone -- but the value
+ * is not. A country that is already featured has to stay featured through an
+ * ordinary save, or editing a tagline would quietly drop it off the public
+ * `?featured=` listing.
+ */
+describe('country editor featured', () => {
+  it('does not offer a Featured control', async () => {
+    await openEditor();
+
+    expect(screen.queryByLabelText('Featured')).toBeNull();
+    expect(screen.queryByRole('checkbox', { name: 'Featured' })).toBeNull();
+  });
+
+  it('sends the stored value back untouched when the country is saved', async () => {
+    mocks.getCountry.mockResolvedValue({ data: { ...country, featured: true } });
+    await openEditor();
+
+    await userEvent.click(screen.getByRole('button', { name: /save draft/i }));
+
+    await waitFor(() => expect(mocks.updateCountry).toHaveBeenCalled());
+    expect(mocks.updateCountry.mock.calls[0][1].isFeatured).toBe(true);
+  });
+});

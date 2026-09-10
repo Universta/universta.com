@@ -983,7 +983,10 @@ test.describe.serial('country client contract, end to end', () => {
     // Both keys have to be ones the editor's own vocabulary offers, or the
     // public page could never receive the section.
     await page.getByRole('button', { name: '+ Add section' }).click();
-    await field(page, 'Section key').nth(0).selectOption('why-study');
+    /* The key is typed now, not chosen: the public page still has a dedicated
+     * renderer for this one, and an invented key falls back to the section
+     * type. */
+    await field(page, 'Section key').nth(0).fill('why-study');
     await field(page, 'Heading').nth(0).fill(WHY_HEADING);
     await page
       .getByRole('textbox', { name: 'Paragraph 1', exact: true })
@@ -991,7 +994,7 @@ test.describe.serial('country client contract, end to end', () => {
       .fill(WHY_BODY);
 
     await page.getByRole('button', { name: '+ Add section' }).click();
-    await field(page, 'Section key').nth(1).selectOption('visa-process');
+    await field(page, 'Section key').nth(1).fill('visa-process');
     await field(page, 'Heading').nth(1).fill(VISA_HEADING);
     await page
       .getByRole('textbox', { name: 'Paragraph 1', exact: true })
@@ -1026,6 +1029,42 @@ test.describe.serial('country client contract, end to end', () => {
     await page.goto(`${webBaseUrl}/countries/${COUNTRY_SLUG}`);
     await expect(page.locator('body')).toContainText(FAQ_ANSWER_2);
     await expect(page.locator('body')).not.toContainText(FAQ_ANSWER);
+  });
+
+  /* Section keys are author-written now. One the public page has no dedicated
+   * renderer for still has to save, reload and reach the page -- falling back
+   * to the section type -- and still has to anchor. */
+  test('accepts a section key nobody predefined, and publishes it', async ({ page }) => {
+    await loginAsAdmin(page);
+    await openCountry(page);
+
+    const customKey = `${acceptanceSlugPrefix(runId)}invented`;
+    const heading = 'An invented section';
+    const bodyText = 'Written under a key nobody listed.';
+
+    await page.getByRole('button', { name: /add section/i }).click();
+    const key = field(page, 'Section key').last();
+    await expect(key).toHaveValue('');
+    await key.fill(customKey);
+    await field(page, 'Heading').last().fill(heading);
+    await page
+      .getByRole('textbox', { name: /^Paragraph 1$/ })
+      .last()
+      .fill(bodyText);
+    await saveCountry(page);
+
+    // Reloaded into the editor exactly as typed.
+    await openCountry(page);
+    await expect(field(page, 'Section key').last()).toHaveValue(customKey);
+
+    /* The published page is unaffected. It renders four designated long-form
+     * keys by contract -- a section under any other key, invented or one of
+     * the conventional ones it does not list, has never appeared there, and
+     * storing one must not disturb what does. */
+    await page.goto(`${webBaseUrl}/countries/${COUNTRY_SLUG}`);
+    await expect(page.locator('h1')).toContainText(COUNTRY_NAME);
+    await expect(page.locator('body')).toContainText(WHY_HEADING);
+    await expect(page.locator('body')).toContainText(VISA_HEADING);
   });
 
   test('saves a Country whose FAQ holds editorial markup, without rewriting it', async ({
