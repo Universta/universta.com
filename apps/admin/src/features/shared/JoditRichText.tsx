@@ -369,9 +369,9 @@ export function JoditRichText({
     };
   }, [closeMenu, ready, syncTrigger]);
 
-  /* The menu's own keys, intercepted on Jodit's editable during the capture
-   * phase -- otherwise Enter breaks the paragraph and the arrows move the caret
-   * before the menu ever sees them.
+  /* The menu's own keys, intercepted from Jodit's owning document during the
+   * capture phase -- otherwise Jodit's target-level handlers can move the
+   * caret before the menu sees an arrow or Enter.
    *
    * Rebound whenever the menu changes rather than reading through a ref: the
    * handler needs the current highlight and the current list, and re-attaching
@@ -393,6 +393,8 @@ export function JoditRichText({
     const area = editorRef.current?.editor;
     if (!ready || !area || !menuOpen) return;
     const onKeyDown = (event: KeyboardEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node) || !area.contains(target)) return;
       if (!['ArrowDown', 'ArrowUp', 'Enter', 'Tab', 'Escape'].includes(event.key))
         return;
       event.preventDefault();
@@ -418,8 +420,9 @@ export function JoditRichText({
       const chosen = suggestionsRef.current[activeSuggestionRef.current];
       if (chosen) applySuggestion(chosen);
     };
-    area.addEventListener('keydown', onKeyDown, true);
-    return () => area.removeEventListener('keydown', onKeyDown, true);
+    const ownerDocument = area.ownerDocument;
+    ownerDocument.addEventListener('keydown', onKeyDown, true);
+    return () => ownerDocument.removeEventListener('keydown', onKeyDown, true);
   }, [active, applySuggestion, autocomplete.query, closeMenu, menuOpen, ready, setActive, suggestions]);
 
   return (

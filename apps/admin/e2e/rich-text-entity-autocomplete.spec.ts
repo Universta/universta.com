@@ -154,7 +154,10 @@ test.describe.serial('rich-text inline entity autocomplete', () => {
      * Jodit never saw the keys: if it had, the caret would have moved and the
      * menu would have closed. */
     await page.keyboard.press('ArrowDown');
+    const second = menu(page).getByRole('option').nth(1);
+    await expect(second).toHaveAttribute('aria-selected', 'true');
     await page.keyboard.press('ArrowUp');
+    await expect(first).toHaveAttribute('aria-selected', 'true');
     await page.keyboard.press('Enter');
 
     await expect(menu(page)).toHaveCount(0);

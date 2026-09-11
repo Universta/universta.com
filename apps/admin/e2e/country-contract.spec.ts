@@ -779,6 +779,10 @@ test.describe.serial('country client contract, end to end', () => {
     expect((await storedProfiles(countryId)).language?.ieltsMinScore ?? null).not.toBe('10');
     await field(language, 'IELTS minimum score').fill('6.5');
     await richText(language, 'IELTS notes').fill('No band below 6.0.');
+    /* A PTE score is meaningful only when the country asks for, or accepts,
+     * PTE. Select that genuine prerequisite rather than depending on whichever
+     * default a seed record happened to carry. */
+    await choice(language, 'PTE requirement').selectOption('OPTIONAL');
     await field(language, 'PTE minimum score').fill('59');
     await language.getByRole('button', { name: 'Save english requirements' }).click();
     await saved();
