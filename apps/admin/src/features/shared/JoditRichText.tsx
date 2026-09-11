@@ -369,9 +369,10 @@ export function JoditRichText({
     };
   }, [closeMenu, ready, syncTrigger]);
 
-  /* The menu's own keys, intercepted from Jodit's owning document during the
-   * capture phase -- otherwise Jodit's target-level handlers can move the
-   * caret before the menu sees an arrow or Enter.
+  /* The menu's own keys, intercepted through Jodit's event manager with top
+   * priority. Jodit registers its own target-level key handlers through that
+   * manager, so a native document listener is not enough: the editor can
+   * consume an arrow before a later DOM listener sees it.
    *
    * Rebound whenever the menu changes rather than reading through a ref: the
    * handler needs the current highlight and the current list, and re-attaching
@@ -420,9 +421,19 @@ export function JoditRichText({
       const chosen = suggestionsRef.current[activeSuggestionRef.current];
       if (chosen) applySuggestion(chosen);
     };
-    const ownerDocument = area.ownerDocument;
-    ownerDocument.addEventListener('keydown', onKeyDown, true);
-    return () => ownerDocument.removeEventListener('keydown', onKeyDown, true);
+    const editor = editorRef.current;
+    if (!editor) return;
+    /* `top` makes this the first keydown listener Jodit dispatches on its
+     * editable. `stopImmediatePropagation` keeps Jodit's selection/navigation
+     * plugins from handling a menu-navigation key after us. */
+    const intercept = (event: KeyboardEvent) => {
+      onKeyDown(event);
+      if (event.defaultPrevented) event.stopImmediatePropagation();
+    };
+    editor.e.on(area, 'keydown.countryAutocomplete', intercept, { top: true });
+    return () => {
+      editor.e.off(area, 'keydown.countryAutocomplete', intercept);
+    };
   }, [active, applySuggestion, autocomplete.query, closeMenu, menuOpen, ready, setActive, suggestions]);
 
   return (
