@@ -404,42 +404,46 @@ export function JoditRichText({
     if (!ready || !area || !menuOpen) return;
     const onKeyDown = (event: KeyboardEvent) => {
       const target = event.target;
-      if (!(target instanceof Node) || !area.contains(target)) return;
+      if (!(target instanceof Node) || !area.contains(target)) return false;
       if (!['ArrowDown', 'ArrowUp', 'Enter', 'Tab', 'Escape'].includes(event.key))
-        return;
+        return false;
       event.preventDefault();
-      event.stopPropagation();
       if (event.key === 'Escape') {
         dismissed.current = autocomplete.query;
         triggerRange.current = null;
         closeMenu();
         setAnchor(null);
-        return;
+        return true;
       }
       if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
         const currentSuggestions = suggestionsRef.current;
-        if (!currentSuggestions.length) return;
+        if (!currentSuggestions.length) return true;
         const step = event.key === 'ArrowDown' ? 1 : -1;
         const next =
           (activeSuggestionRef.current + step + currentSuggestions.length) %
           currentSuggestions.length;
         activeSuggestionRef.current = next;
         setActive(next);
-        return;
+        return true;
       }
       const chosen = suggestionsRef.current[activeSuggestionRef.current];
       if (chosen) applySuggestion(chosen);
+      return true;
     };
     const editor = editorRef.current;
     if (!editor) return;
-    /* `top` makes this the first keydown listener Jodit dispatches on its
-     * editable. `stopImmediatePropagation` keeps Jodit's selection/navigation
-     * plugins from handling a menu-navigation key after us. */
+    /* Jodit's manager adds its plugins as native bubble listeners. Capture
+     * gets the editor's navigation keys before them; returning false is
+     * Jodit's documented signal to prevent default and stop every later
+     * listener for this event. */
     const intercept = (event: KeyboardEvent) => {
-      onKeyDown(event);
-      if (event.defaultPrevented) event.stopImmediatePropagation();
+      if (onKeyDown(event)) return false;
+      return undefined;
     };
-    editor.e.on(area, 'keydown.countryAutocomplete', intercept, { top: true });
+    editor.e.on(area, 'keydown.countryAutocomplete', intercept, {
+      top: true,
+      capture: true,
+    });
     return () => {
       editor.e.off(area, 'keydown.countryAutocomplete', intercept);
     };
