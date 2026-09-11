@@ -378,6 +378,17 @@ export function JoditRichText({
    * one listener is cheaper than the bugs a stale closure causes here. It is
    * attached only while the menu is open, so ordinary typing is untouched. */
   const { active, setActive, suggestions } = autocomplete;
+  /* The handler below is a native capture listener rather than a React event.
+   * React may therefore render between a rapid ArrowDown → ArrowUp → Enter
+   * sequence. Keep the highlighted index synchronously in step with those
+   * keys so Enter always chooses the item currently highlighted in the menu,
+   * not the index captured by a previous effect run. */
+  const activeSuggestionRef = useRef(active);
+  const suggestionsRef = useRef(suggestions);
+  useEffect(() => {
+    activeSuggestionRef.current = active;
+    suggestionsRef.current = suggestions;
+  }, [active, suggestions]);
   useEffect(() => {
     const area = editorRef.current?.editor;
     if (!ready || !area || !menuOpen) return;
@@ -394,11 +405,17 @@ export function JoditRichText({
         return;
       }
       if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        const currentSuggestions = suggestionsRef.current;
+        if (!currentSuggestions.length) return;
         const step = event.key === 'ArrowDown' ? 1 : -1;
-        setActive((current) => (current + step + suggestions.length) % suggestions.length);
+        const next =
+          (activeSuggestionRef.current + step + currentSuggestions.length) %
+          currentSuggestions.length;
+        activeSuggestionRef.current = next;
+        setActive(next);
         return;
       }
-      const chosen = suggestions[active];
+      const chosen = suggestionsRef.current[activeSuggestionRef.current];
       if (chosen) applySuggestion(chosen);
     };
     area.addEventListener('keydown', onKeyDown, true);
