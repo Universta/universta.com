@@ -43,6 +43,29 @@ function integer({ value }: TransformFnParams): unknown {
   return Number(value);
 }
 
+/**
+ * How much authored markup a profile's rich-text field accepts.
+ *
+ * These fields are edited in the WYSIWYG, which invites the multi-paragraph
+ * guidance a destination page is built from, and they are stored in `TEXT`
+ * columns that hold about sixty-five thousand bytes. Only the request contract
+ * disagreed: tuition and living-cost notes were capped at a thousand characters
+ * and the visa and waiver summaries at two thousand, which a single authored
+ * section passes without trying. The write came back 400 naming the field, the
+ * editor reported it as a failed save, and the author was left with an empty
+ * card and no idea which sentence was too long.
+ *
+ * Ten thousand is what `disclaimer` and `visaInformation` already allowed, so
+ * it is the number the contract already considered reasonable for exactly this
+ * kind of copy. It stays well inside the column either way.
+ *
+ * The four per-test note fields on the language profile are deliberately NOT
+ * raised here: their columns are `VARCHAR(500)` and widening the contract
+ * without widening the column would move the failure from a 400 to a truncated
+ * or rejected write.
+ */
+export const RICH_TEXT_MAX = 10000;
+
 export class ProfileVersionDto {
   @ApiPropertyOptional({
     description: 'Timestamp returned by the previous write',
@@ -115,11 +138,11 @@ export class CostProfileDto extends ProfileVersionDto {
   @IsOptional() @IsString() tuitionMin?: string;
   @IsOptional() @IsString() tuitionMax?: string;
   @IsOptional() @IsIn(COST_PERIODS) tuitionPeriod?: string;
-  @IsOptional() @IsString() @MaxLength(1000) tuitionNotes?: string;
+  @IsOptional() @IsString() @MaxLength(RICH_TEXT_MAX) tuitionNotes?: string;
   @IsOptional() @IsString() livingCostMin?: string;
   @IsOptional() @IsString() livingCostMax?: string;
   @IsOptional() @IsIn(COST_PERIODS) livingCostPeriod?: string;
-  @IsOptional() @IsString() @MaxLength(1000) livingCostNotes?: string;
+  @IsOptional() @IsString() @MaxLength(RICH_TEXT_MAX) livingCostNotes?: string;
   @IsOptional() @IsString() accommodationMin?: string;
   @IsOptional() @IsString() accommodationMax?: string;
   @IsOptional() @IsString() foodCostMin?: string;
@@ -137,7 +160,7 @@ export class CostProfileDto extends ProfileVersionDto {
   @Max(2100)
   applicableYear?: number;
   @IsOptional() @IsString() @MaxLength(2048) sourceReference?: string;
-  @IsOptional() @IsString() @MaxLength(10000) disclaimer?: string;
+  @IsOptional() @IsString() @MaxLength(RICH_TEXT_MAX) disclaimer?: string;
   @IsOptional() @IsISO8601() verifiedAt?: string;
 }
 
@@ -148,7 +171,7 @@ export class WorkProfileDto extends ProfileVersionDto {
   @Transform(bool) @IsOptional() @IsBoolean() partTimeAllowed?: boolean;
   @IsOptional() @IsString() partTimeHoursPerWeek?: string;
   @IsOptional() @IsString() partTimeHoursDuringBreaks?: string;
-  @IsOptional() @IsString() @MaxLength(2000) partTimeSummary?: string;
+  @IsOptional() @IsString() @MaxLength(RICH_TEXT_MAX) partTimeSummary?: string;
   @Transform(bool) @IsOptional() @IsBoolean() postStudyWorkAvailable?: boolean;
   @Transform(integer)
   @IsOptional()
@@ -162,16 +185,25 @@ export class WorkProfileDto extends ProfileVersionDto {
   @Min(0)
   @Max(120)
   postStudyWorkMaxMonths?: number;
-  @IsOptional() @IsString() @MaxLength(2000) postStudyWorkSummary?: string;
+  @IsOptional()
+  @IsString()
+  @MaxLength(RICH_TEXT_MAX)
+  postStudyWorkSummary?: string;
   @IsOptional() @IsIn(PATHWAY_STRENGTHS) immigrationPathwayStrength?: string;
-  @IsOptional() @IsString() @MaxLength(2000) immigrationPathwaySummary?: string;
+  @IsOptional()
+  @IsString()
+  @MaxLength(RICH_TEXT_MAX)
+  immigrationPathwaySummary?: string;
   @IsOptional() @IsIn(VISA_SUCCESS_BANDS) visaSuccessBand?: string;
   @IsOptional() @IsString() visaSuccessPercentage?: string;
-  @IsOptional() @IsString() @MaxLength(10000) visaInformation?: string;
+  @IsOptional() @IsString() @MaxLength(RICH_TEXT_MAX) visaInformation?: string;
   @IsOptional() @IsString() @MaxLength(255) visaProcessingTime?: string;
-  @IsOptional() @IsString() @MaxLength(2000) proofOfFundsSummary?: string;
+  @IsOptional()
+  @IsString()
+  @MaxLength(RICH_TEXT_MAX)
+  proofOfFundsSummary?: string;
   @IsOptional() @IsString() @MaxLength(2048) sourceReference?: string;
-  @IsOptional() @IsString() @MaxLength(10000) disclaimer?: string;
+  @IsOptional() @IsString() @MaxLength(RICH_TEXT_MAX) disclaimer?: string;
   @IsOptional() @IsISO8601() verifiedAt?: string;
 }
 
@@ -189,10 +221,10 @@ export class LanguageProfileDto extends ProfileVersionDto {
   @IsOptional() @IsString() duolingoMinScore?: string;
   @IsOptional() @IsString() @MaxLength(500) duolingoNotes?: string;
   @Transform(bool) @IsOptional() @IsBoolean() languageWaiverAvailable?: boolean;
-  @IsOptional() @IsString() @MaxLength(2000) waiverNotes?: string;
-  @IsOptional() @IsString() @MaxLength(2000) generalNotes?: string;
+  @IsOptional() @IsString() @MaxLength(RICH_TEXT_MAX) waiverNotes?: string;
+  @IsOptional() @IsString() @MaxLength(RICH_TEXT_MAX) generalNotes?: string;
   @IsOptional() @IsString() @MaxLength(2048) sourceReference?: string;
-  @IsOptional() @IsString() @MaxLength(10000) disclaimer?: string;
+  @IsOptional() @IsString() @MaxLength(RICH_TEXT_MAX) disclaimer?: string;
   @IsOptional() @IsISO8601() verifiedAt?: string;
 }
 

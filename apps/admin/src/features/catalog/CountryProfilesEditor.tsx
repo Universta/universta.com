@@ -165,16 +165,48 @@ export const CountryProfilesEditor = forwardRef<
    */
   const touched = useRef<Set<Section>>(new Set());
 
-  /** Every draft is re-seeded from the server payload, so the concurrency
-   * token a card holds is always the one the API just wrote. A card that came
-   * from the server has no unsaved edit left in it by definition. */
-  const seed = useCallback((data: CountryProfileBundle) => {
+  /**
+   * Re-seeds every draft from the server payload, except a card the author has
+   * changed and not yet saved.
+   *
+   * This used to take the payload as authoritative for all four cards and
+   * empty `touched` with it, on the reasoning that a card which came from the
+   * server has no unsaved edit in it. That is true of the read which follows a
+   * write, and false of the read which races one.
+   *
+   * The read fires whenever `countryId` changes, and the first save of a new
+   * country changes it: the parent sets the freshly created record before it
+   * calls `persistDrafts`, so the read that id change starts can land in
+   * between. It did, and it emptied `touched`, and `persistDrafts` then found
+   * nothing pending and wrote nothing at all -- silently, behind a "Draft
+   * saved." The same read overtakes an author who starts typing on reopen
+   * before it returns, wiping what they had typed.
+   *
+   * So an edited card keeps its values and its edited flag here and takes only
+   * the version token the server holds, which is what its next write has to
+   * carry. Every other card is seeded exactly as before. The callers that
+   * follow a write clear `touched` themselves, for the sections they actually
+   * wrote and no others.
+   */
+  const hydrate = useCallback((data: CountryProfileBundle) => {
     setBundle(data);
-    setCost((data.cost ?? {}) as Draft);
-    setWork((data.work ?? {}) as Draft);
-    setLanguage((data.language ?? {}) as Draft);
-    setStatistics((data.statistics ?? { sourceMode: "DERIVED" }) as Draft);
-    touched.current = new Set();
+    const apply = (
+      section: Section,
+      set: React.Dispatch<React.SetStateAction<Draft>>,
+      incoming: Record<string, unknown> | null,
+      blank: Draft,
+    ) =>
+      set((current) =>
+        touched.current.has(section)
+          ? { ...current, updatedAt: incoming?.updatedAt }
+          : ((incoming ?? blank) as Draft),
+      );
+    apply("cost", setCost, data.cost, {});
+    apply("work", setWork, data.work, {});
+    apply("language", setLanguage, data.language, {});
+    apply("statistics", setStatistics, data.statistics, {
+      sourceMode: "DERIVED",
+    });
   }, []);
 
   /** One place that records an edit, so every control on every card reports it
@@ -212,7 +244,7 @@ export const CountryProfilesEditor = forwardRef<
     /* A country's profiles only exist once the country does. */
     void (countryId ? getCountryProfiles(countryId) : Promise.resolve(null))
       .then((profiles) => {
-        if (profiles) seed(profiles.data);
+        if (profiles) hydrate(profiles.data);
       })
       .catch((cause: unknown) =>
         setError(
@@ -221,7 +253,7 @@ export const CountryProfilesEditor = forwardRef<
             : "Unable to load country profiles",
         ),
       );
-  }, [countryId, seed]);
+  }, [countryId, hydrate]);
 
   /** What a card would send. Shared by the per-card Save button and by the
    * flush the parent runs after it first creates the Country, so a draft typed
@@ -258,12 +290,50 @@ export const CountryProfilesEditor = forwardRef<
           (section) => touched.current.has(section),
         );
         if (!pending.length) return;
-        for (const section of pending)
-          await putCountryProfile(newCountryId, section, payloadFor(section));
-        seed((await getCountryProfiles(newCountryId)).data);
+        /* Each card is written on its own terms.
+         *
+         * This was one `await` inside a plain loop, so the first card the API
+         * refused threw out of the whole flush and the cards behind it were
+         * never even attempted. That is what happened on the country this was
+         * reported against: the cost write came back 400 and work, English and
+         * statistics -- all of them valid -- were never sent, so three cards
+         * the author had filled in were lost to one they had not. Whatever the
+         * server objects to, it objects to one card's contents, and the other
+         * three are nothing to do with it. */
+        const written: Section[] = [];
+        const refused: string[] = [];
+        for (const section of pending) {
+          try {
+            await putCountryProfile(newCountryId, section, payloadFor(section));
+            written.push(section);
+          } catch (cause: unknown) {
+            refused.push(
+              `${LABELS[section]}: ${
+                cause instanceof Error ? cause.message : "could not be saved"
+              }`,
+            );
+          }
+        }
+        const latest = (await getCountryProfiles(newCountryId)).data;
+        /* Only what this flush actually wrote stops counting as edited. A card
+         * the author changed while the writes were in flight keeps its edit and
+         * goes out with the next save instead of being dropped by this one --
+         * and so does a card the server refused, so correcting it and saving
+         * again sends it rather than silently dropping it. */
+        for (const section of written) touched.current.delete(section);
+        hydrate(latest);
+        /* Reported as a failure of the country save, because it is one: the
+         * button said it would save these cards. Naming the card and the
+         * server's own reason is the difference between an author fixing one
+         * field and an author retyping four sections into a form that keeps
+         * emptying itself. */
+        if (refused.length)
+          throw new Error(
+            `Saved the country, but ${refused.length === 1 ? "one profile card was" : `${refused.length} profile cards were`} not saved — ${refused.join(" ")}`,
+          );
       },
     }),
-    [payloadFor, seed],
+    [hydrate, payloadFor],
   );
 
   async function save(section: Section) {
@@ -308,7 +378,8 @@ export const CountryProfilesEditor = forwardRef<
       // Re-read rather than trusting local state: this is what keeps a second
       // edit working, and it surfaces any server-side normalisation.
       const refreshed = await getCountryProfiles(countryId);
-      seed(refreshed.data);
+      touched.current.delete(section);
+      hydrate(refreshed.data);
       setMessage(`${LABELS[section]} saved.`);
     } catch (cause: unknown) {
       setError(cause instanceof Error ? cause.message : "Unable to save");
