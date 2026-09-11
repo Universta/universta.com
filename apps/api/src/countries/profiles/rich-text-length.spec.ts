@@ -83,17 +83,25 @@ describe('profile rich text accepts what the editor invites', () => {
     ).toEqual(['tuitionNotes.maxLength']);
   });
 
-  /* The four per-test note fields are backed by VARCHAR(500) columns, so the
-   * contract deliberately still stops at 500: widening it here would move the
-   * failure from a validation message to a rejected or truncated write. This
-   * is pinned so that raising it is a deliberate act taken together with a
-   * column change, not an accident. */
-  it('keeps the per-test English notes at their column width', () => {
-    expect(errorsFor(LanguageProfileDto, { ieltsNotes: markup(501) })).toEqual([
-      'ieltsNotes.maxLength',
-    ]);
-    expect(errorsFor(LanguageProfileDto, { ieltsNotes: markup(500) })).toEqual(
-      [],
-    );
+  /* The four per-test English notes are authored in the same WYSIWYG as
+   * everything else on the card, so they share the same limit. Their columns
+   * were widened from VARCHAR(500) to TEXT in the same change; pinning a body
+   * well past the old width is what would catch the contract and the column
+   * drifting apart again. */
+  it('takes a full note for each English test', () => {
+    expect(
+      errorsFor(LanguageProfileDto, {
+        ieltsNotes: markup(4000),
+        pteNotes: markup(4000),
+        toeflNotes: markup(4000),
+        duolingoNotes: markup(4000),
+      }),
+    ).toEqual([]);
+  });
+
+  it('still refuses a per-test note past the shared limit', () => {
+    expect(
+      errorsFor(LanguageProfileDto, { ieltsNotes: markup(RICH_TEXT_MAX + 1) }),
+    ).toEqual(['ieltsNotes.maxLength']);
   });
 });

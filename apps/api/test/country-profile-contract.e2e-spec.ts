@@ -270,6 +270,95 @@ describe('country profile client contract (e2e)', () => {
     expect(language.generalNotes).toBe('Programmes may ask for more.');
   });
 
+  /**
+   * Multi-paragraph guidance, saved and read back through the real API.
+   *
+   * These fields are edited in the WYSIWYG and a destination's guidance runs to
+   * several paragraphs. The contract capped tuition and living-cost notes at a
+   * thousand characters, the visa and waiver summaries at two thousand, and the
+   * four per-test English notes at five hundred to match a VARCHAR(500) column
+   * that has since been widened. Every one of those refused a single authored
+   * section with a 400 -- which is how a country lost all four of its profile
+   * cards in production, because the editor wrote them in one sequence and the
+   * first refusal took the other three with it.
+   *
+   * A body of four thousand characters is past every one of the old limits and
+   * well inside the columns, so it fails on the old contract and on an
+   * unmigrated column, and passes on both together.
+   */
+  const longBody = (sentence: string) =>
+    `<p>${sentence}</p>`.repeat(80).slice(0, 4000);
+
+  it('persists several paragraphs of cost guidance', async () => {
+    const tuitionNotes = longBody('Tuition depends on who funds the institution.');
+    const livingCostNotes = longBody('A hostel room with meals is the cheapest option.');
+    const disclaimer = longBody('Confirm every figure with the institution.');
+    /* The cost card refuses amounts without a currency, so this carries the
+     * same one the fixture uses. The subject here is the length of the prose,
+     * not the currency rule the case above already pins. */
+    await saved('cost', {
+      currencyCode: 'EUR',
+      tuitionNotes,
+      livingCostNotes,
+      disclaimer,
+    });
+
+    const cost = group(await profiles(), 'cost');
+    expect(cost.tuitionNotes).toBe(tuitionNotes);
+    expect(cost.livingCostNotes).toBe(livingCostNotes);
+    expect(cost.disclaimer).toBe(disclaimer);
+  });
+
+  it('persists several paragraphs of work and visa guidance', async () => {
+    const partTimeSummary = longBody('The student visa is granted for study alone.');
+    const postStudyWorkSummary = longBody('There is no general post-study work visa.');
+    const immigrationPathwaySummary = longBody('Settlement routes are narrow.');
+    const proofOfFundsSummary = longBody('Stamped statements over several months.');
+    await saved('work', {
+      partTimeSummary,
+      postStudyWorkSummary,
+      immigrationPathwaySummary,
+      proofOfFundsSummary,
+    });
+
+    const work = group(await profiles(), 'work');
+    expect(work.partTimeSummary).toBe(partTimeSummary);
+    expect(work.postStudyWorkSummary).toBe(postStudyWorkSummary);
+    expect(work.immigrationPathwaySummary).toBe(immigrationPathwaySummary);
+    expect(work.proofOfFundsSummary).toBe(proofOfFundsSummary);
+  });
+
+  /* Past the old VARCHAR(500) width on all four per-test note columns. This is
+   * the case the widening migration exists for: without it the write is
+   * refused by the contract, and with the contract alone it would be refused or
+   * truncated by the column. */
+  it('persists an English note per test, past the old column width', async () => {
+    const ieltsNotes = longBody('IELTS is accepted across Indian institutions.');
+    const pteNotes = longBody('PTE Academic is widely accepted.');
+    const toeflNotes = longBody('TOEFL iBT is accepted for postgraduate entry.');
+    const duolingoNotes = longBody('Acceptance of Duolingo is not universal.');
+    const waiverNotes = longBody('A medium of instruction letter is usually enough.');
+    const generalNotes = longBody('English is the working language of the classroom.');
+    await saved('language', {
+      ieltsNotes,
+      pteNotes,
+      toeflNotes,
+      duolingoNotes,
+      waiverNotes,
+      generalNotes,
+    });
+
+    const language = group(await profiles(), 'language');
+    expect(language.ieltsNotes).toBe(ieltsNotes);
+    expect(language.pteNotes).toBe(pteNotes);
+    expect(language.toeflNotes).toBe(toeflNotes);
+    expect(language.duolingoNotes).toBe(duolingoNotes);
+    expect(language.waiverNotes).toBe(waiverNotes);
+    expect(language.generalNotes).toBe(generalNotes);
+    /* Stored whole, not clipped at the old width. */
+    expect(String(language.ieltsNotes)).toHaveLength(4000);
+  });
+
   it('persists intakes with their application windows', async () => {
     const intakes = await prisma.intake.findMany({
       where: { status: 'ACTIVE' },

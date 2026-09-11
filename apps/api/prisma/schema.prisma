@@ -1040,16 +1040,16 @@ model CountryLanguageRequirement {
   countryId               String    @unique @map("country_id") @db.Char(36)
   ieltsRequirement        String    @default("VARIES") @map("ielts_requirement") @db.VarChar(30)
   ieltsMinScore           Decimal?  @map("ielts_min_score") @db.Decimal(3, 1)
-  ieltsNotes              String?   @map("ielts_notes") @db.VarChar(500)
+  ieltsNotes              String?   @map("ielts_notes") @db.Text
   pteRequirement          String    @default("VARIES") @map("pte_requirement") @db.VarChar(30)
   pteMinScore             Decimal?  @map("pte_min_score") @db.Decimal(5, 2)
-  pteNotes                String?   @map("pte_notes") @db.VarChar(500)
+  pteNotes                String?   @map("pte_notes") @db.Text
   toeflRequirement        String    @default("VARIES") @map("toefl_requirement") @db.VarChar(30)
   toeflMinScore           Decimal?  @map("toefl_min_score") @db.Decimal(5, 2)
-  toeflNotes              String?   @map("toefl_notes") @db.VarChar(500)
+  toeflNotes              String?   @map("toefl_notes") @db.Text
   duolingoRequirement     String    @default("VARIES") @map("duolingo_requirement") @db.VarChar(30)
   duolingoMinScore        Decimal?  @map("duolingo_min_score") @db.Decimal(5, 2)
-  duolingoNotes           String?   @map("duolingo_notes") @db.VarChar(500)
+  duolingoNotes           String?   @map("duolingo_notes") @db.Text
   languageWaiverAvailable Boolean   @default(false) @map("language_waiver_available")
   waiverNotes             String?   @map("waiver_notes") @db.Text
   generalNotes            String?   @map("general_notes") @db.Text

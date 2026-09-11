@@ -59,10 +59,9 @@ function integer({ value }: TransformFnParams): unknown {
  * it is the number the contract already considered reasonable for exactly this
  * kind of copy. It stays well inside the column either way.
  *
- * The four per-test note fields on the language profile are deliberately NOT
- * raised here: their columns are `VARCHAR(500)` and widening the contract
- * without widening the column would move the failure from a 400 to a truncated
- * or rejected write.
+ * Every rich-text field on these cards now shares it, the four per-test English
+ * notes included: their columns were `VARCHAR(500)`, which is not a shape a
+ * WYSIWYG field can have, and they were widened to `TEXT` alongside this.
  */
 export const RICH_TEXT_MAX = 10000;
 
@@ -210,16 +209,16 @@ export class WorkProfileDto extends ProfileVersionDto {
 export class LanguageProfileDto extends ProfileVersionDto {
   @IsOptional() @IsIn(LANGUAGE_REQUIREMENTS) ieltsRequirement?: string;
   @IsOptional() @IsString() ieltsMinScore?: string;
-  @IsOptional() @IsString() @MaxLength(500) ieltsNotes?: string;
+  @IsOptional() @IsString() @MaxLength(RICH_TEXT_MAX) ieltsNotes?: string;
   @IsOptional() @IsIn(LANGUAGE_REQUIREMENTS) pteRequirement?: string;
   @IsOptional() @IsString() pteMinScore?: string;
-  @IsOptional() @IsString() @MaxLength(500) pteNotes?: string;
+  @IsOptional() @IsString() @MaxLength(RICH_TEXT_MAX) pteNotes?: string;
   @IsOptional() @IsIn(LANGUAGE_REQUIREMENTS) toeflRequirement?: string;
   @IsOptional() @IsString() toeflMinScore?: string;
-  @IsOptional() @IsString() @MaxLength(500) toeflNotes?: string;
+  @IsOptional() @IsString() @MaxLength(RICH_TEXT_MAX) toeflNotes?: string;
   @IsOptional() @IsIn(LANGUAGE_REQUIREMENTS) duolingoRequirement?: string;
   @IsOptional() @IsString() duolingoMinScore?: string;
-  @IsOptional() @IsString() @MaxLength(500) duolingoNotes?: string;
+  @IsOptional() @IsString() @MaxLength(RICH_TEXT_MAX) duolingoNotes?: string;
   @Transform(bool) @IsOptional() @IsBoolean() languageWaiverAvailable?: boolean;
   @IsOptional() @IsString() @MaxLength(RICH_TEXT_MAX) waiverNotes?: string;
   @IsOptional() @IsString() @MaxLength(RICH_TEXT_MAX) generalNotes?: string;
