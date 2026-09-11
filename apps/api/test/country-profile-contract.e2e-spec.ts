@@ -290,8 +290,12 @@ describe('country profile client contract (e2e)', () => {
     `<p>${sentence}</p>`.repeat(80).slice(0, 4000);
 
   it('persists several paragraphs of cost guidance', async () => {
-    const tuitionNotes = longBody('Tuition depends on who funds the institution.');
-    const livingCostNotes = longBody('A hostel room with meals is the cheapest option.');
+    const tuitionNotes = longBody(
+      'Tuition depends on who funds the institution.',
+    );
+    const livingCostNotes = longBody(
+      'A hostel room with meals is the cheapest option.',
+    );
     const disclaimer = longBody('Confirm every figure with the institution.');
     /* The cost card refuses amounts without a currency, so this carries the
      * same one the fixture uses. The subject here is the length of the prose,
@@ -310,10 +314,16 @@ describe('country profile client contract (e2e)', () => {
   });
 
   it('persists several paragraphs of work and visa guidance', async () => {
-    const partTimeSummary = longBody('The student visa is granted for study alone.');
-    const postStudyWorkSummary = longBody('There is no general post-study work visa.');
+    const partTimeSummary = longBody(
+      'The student visa is granted for study alone.',
+    );
+    const postStudyWorkSummary = longBody(
+      'There is no general post-study work visa.',
+    );
     const immigrationPathwaySummary = longBody('Settlement routes are narrow.');
-    const proofOfFundsSummary = longBody('Stamped statements over several months.');
+    const proofOfFundsSummary = longBody(
+      'Stamped statements over several months.',
+    );
     await saved('work', {
       partTimeSummary,
       postStudyWorkSummary,
@@ -333,12 +343,20 @@ describe('country profile client contract (e2e)', () => {
    * refused by the contract, and with the contract alone it would be refused or
    * truncated by the column. */
   it('persists an English note per test, past the old column width', async () => {
-    const ieltsNotes = longBody('IELTS is accepted across Indian institutions.');
+    const ieltsNotes = longBody(
+      'IELTS is accepted across Indian institutions.',
+    );
     const pteNotes = longBody('PTE Academic is widely accepted.');
-    const toeflNotes = longBody('TOEFL iBT is accepted for postgraduate entry.');
+    const toeflNotes = longBody(
+      'TOEFL iBT is accepted for postgraduate entry.',
+    );
     const duolingoNotes = longBody('Acceptance of Duolingo is not universal.');
-    const waiverNotes = longBody('A medium of instruction letter is usually enough.');
-    const generalNotes = longBody('English is the working language of the classroom.');
+    const waiverNotes = longBody(
+      'A medium of instruction letter is usually enough.',
+    );
+    const generalNotes = longBody(
+      'English is the working language of the classroom.',
+    );
     await saved('language', {
       ieltsNotes,
       pteNotes,
