@@ -83,31 +83,29 @@ describe('RichTextEditor', () => {
     await waitFor(() => expect(stored()).toContain('<p>edited</p>'));
   });
 
-  it('offers the variables scoped to the field, and inserts the token', async () => {
+  /* The "Insert variable [Choose…]" dropdown that used to sit above every
+   * field is gone; variables and records are picked inline by typing `%` in
+   * the editor itself. Which variables a field offers is still a contract, and
+   * it is asserted directly against the registry and the suggestion builder in
+   * entity-autocomplete.test.ts -- the picking is a caret behaviour and is
+   * covered in a browser. What belongs here is that the old control really has
+   * left every field. */
+  it('offers no separate insert-variable control', async () => {
     render(<EditorExample value="<p>Body</p>" />);
     await waitFor(() => expect(box()).toBeVisible());
 
-    await userEvent.selectOptions(
-      screen.getByLabelText('Insert variable into Description'),
-      'countryName',
-    );
-
-    await waitFor(() => expect(stored()).toContain('{countryName}'));
+    expect(screen.queryByLabelText(/Insert variable/i)).toBeNull();
+    expect(screen.queryByRole('combobox')).toBeNull();
+    expect(screen.queryByText('Insert variable')).toBeNull();
   });
 
-  it('offers no variable control where the context has none', async () => {
-    render(<EditorExample variables={variablesForContext(undefined)} />);
-    await waitFor(() => expect(box()).toBeVisible());
-
-    expect(screen.queryByLabelText(/Insert variable/)).toBeNull();
-  });
-
-  it('keeps an unrelated entity out of the variable list', async () => {
-    render(<EditorExample variables={variablesForContext('university')} />);
-    await waitFor(() => expect(box()).toBeVisible());
-
-    const list = screen.getByLabelText('Insert variable into Description');
-    expect(list.textContent).not.toMatch(/job/i);
+  it('still scopes its variable registry to the field context', () => {
+    /* The registry is what the inline menu is built from, so a field that must
+     * not offer job variables still must not have them in scope. */
+    const university = variablesForContext('university').map((row) => row.key);
+    expect(university).toContain('universityName');
+    expect(university.join(' ')).not.toMatch(/job/i);
+    expect(variablesForContext(undefined)).toEqual([]);
   });
 
   it('inserts a Media Library image, and offers no other upload path', async () => {

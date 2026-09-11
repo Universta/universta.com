@@ -54,6 +54,7 @@ import { CatalogDialog } from "./CatalogDialog";
 import { FieldLabel } from "@/features/shared/FieldLabel";
 import { UnifiedEditorActions } from "@/features/shared/UnifiedEditorActions";
 import { variablesForContext } from "@/features/shared/variable-autocomplete";
+import type { EditorEntityContext } from "@/features/shared/useEntityAutocomplete";
 import { nextAutoSlug, slugFromText } from "@/lib/slug";
 import {
   blankUnifiedSeo,
@@ -415,6 +416,26 @@ export function CountryForm({ countryId }: { countryId?: string }) {
     el.focus({ preventScroll: true });
   };
   const [dirty, setDirty] = useState(false);
+
+  /* Stable identity: the profiles editor memoises its per-card setters against
+   * this, so a fresh closure each render would rebuild all four every time. */
+  const markDirty = useCallback(() => setDirty(true), []);
+
+  /* What the shared editor's inline `%` autocomplete is told about this
+   * record. `countryId` ranks this country's own universities and cities above
+   * unrelated ones; the values let `%country` resolve what is currently in the
+   * form, so it works on a country that has never been saved. */
+  const entityContext = useMemo(
+    () => ({
+      countryId: record?.id,
+      variableContext: "country",
+      variableValues: {
+        countryName: core.name,
+        countrySlug: core.slug,
+      },
+    }),
+    [core.name, core.slug, record?.id],
+  );
   const [slugEdited, setSlugEdited] = useState(false);
 
   useEffect(() => {
@@ -967,10 +988,13 @@ export function CountryForm({ countryId }: { countryId?: string }) {
        * It also pins a newly created country's id, so a retry updates it
        * instead of trying to create the same slug twice. */
       setRecord(saved);
-      /* Only on the save that created the row: afterwards each card writes
-       * through its own Save, and re-flushing them here would overwrite a
-       * card someone else had edited in the meantime. */
-      if (!record) await profilesRef.current?.persistDrafts(saved.id);
+      /* Every save, not only the one that created the row. A profile card the
+       * author filled in is part of what the button in front of them says it
+       * saves, and skipping it here is what made Work and visa values vanish on
+       * reopen. Only cards they actually edited are written, and each still
+       * carries the version token it was read with, so another session's edit
+       * is refused as stale rather than overwritten. */
+      await profilesRef.current?.persistDrafts(saved.id);
       await syncEditorial(saved.id);
       const refreshed = (await getCountry(saved.id)).data;
       saved =
@@ -1147,6 +1171,7 @@ export function CountryForm({ countryId }: { countryId?: string }) {
                 value={core.shortDescription}
                 onChange={(value) => setCoreField("shortDescription", value)}
                 allowedVariables={variablesForContext("country")}
+                entityContext={entityContext}
                 enableImages={false}
                 minHeight="min-h-28"
               />
@@ -1162,6 +1187,7 @@ export function CountryForm({ countryId }: { countryId?: string }) {
                 value={core.overview}
                 onChange={(value) => setCoreField("overview", value)}
                 allowedVariables={variablesForContext("country")}
+                entityContext={entityContext}
                 media={media}
                 minHeight="min-h-40"
               />
@@ -1389,6 +1415,7 @@ export function CountryForm({ countryId }: { countryId?: string }) {
                           updateDocument(index, { details: value })
                         }
                         allowedVariables={variablesForContext("country")}
+                        entityContext={entityContext}
                         enableImages={false}
                         minHeight="min-h-20"
                       />
@@ -1421,6 +1448,10 @@ export function CountryForm({ countryId }: { countryId?: string }) {
           ref={profilesRef}
           countryId={record?.id}
           currencyCode={core.currencyCode}
+          /* So an edit made only in a profile card counts as an unsaved
+           * change on the form that will write it. */
+          onDirty={markDirty}
+          entityContext={entityContext}
         />
         <Card
           eyebrow="Editorial"
@@ -1445,6 +1476,7 @@ export function CountryForm({ countryId }: { countryId?: string }) {
             ) : (
               sections.map((row, index) => (
                 <CountrySection
+                entityContext={entityContext}
                   key={row.id ?? `section-${index}`}
                   index={index}
                   row={row}
@@ -1507,6 +1539,7 @@ export function CountryForm({ countryId }: { countryId?: string }) {
                         value={row.answer}
                         onChange={(value) => updateFaq(index, { answer: value })}
                         allowedVariables={variablesForContext("country")}
+                        entityContext={entityContext}
                         enableImages={false}
                         minHeight="min-h-28"
                       />
@@ -1599,6 +1632,7 @@ export function CountryForm({ countryId }: { countryId?: string }) {
                           updateCard(index, { shortDescription: value })
                         }
                         allowedVariables={variablesForContext("country")}
+                        entityContext={entityContext}
                         enableImages={false}
                         minHeight="min-h-24"
                       />
@@ -1611,6 +1645,7 @@ export function CountryForm({ countryId }: { countryId?: string }) {
                           updateCard(index, { overview: value })
                         }
                         allowedVariables={variablesForContext("country")}
+                        entityContext={entityContext}
                         enableImages={false}
                         minHeight="min-h-28"
                       />
@@ -2244,12 +2279,14 @@ function CountrySection({
   index,
   row,
   media,
+  entityContext,
   onChange,
   onRemove,
 }: {
   index: number;
   row: SectionRow;
   media: EditorialMedia[];
+  entityContext: EditorEntityContext;
   onChange: (patch: Partial<SectionRow>) => void;
   onRemove: () => void;
 }) {
@@ -2301,6 +2338,7 @@ function CountrySection({
             value={row.subheading}
             onChange={(value) => onChange({ subheading: value })}
             allowedVariables={variablesForContext("country")}
+            entityContext={entityContext}
             enableImages={false}
             minHeight="min-h-24"
           />
@@ -2336,6 +2374,7 @@ function CountrySection({
       </div>
       <div className="mt-5">
         <TypedBodyEditor
+          entityContext={entityContext}
           type={row.sectionType}
           value={row.body}
           onChange={(body) => onChange({ body })}

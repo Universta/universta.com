@@ -1,21 +1,25 @@
-import { render, screen, waitFor } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
+import { render, screen } from '@testing-library/react';
 import { useState } from 'react';
 import { describe, expect, it } from 'vitest';
 import { COUNTRY_EDITORIAL_VARIABLES } from '@/features/shared/variable-autocomplete';
+import { buildSuggestions } from '@/features/shared/entity-autocomplete';
 import { TypedBodyEditor } from './TypedBodyEditor';
 
 /**
- * Dynamic variables used to be typed: `%` opened a suggestion list the editor
- * drew itself, with its own keyboard handling. That list belonged to a
- * hand-built editor; Jodit owns the typing surface now, and intercepting its
- * keystrokes to draw our own popup is exactly the kind of editor behaviour this
- * change set out to stop maintaining.
+ * Dynamic variables have been through three pickers now.
  *
- * The feature is unchanged in substance -- the same scoped variables, inserted
- * as the same `{token}` -- but it is now picked from a control beside the
- * toolbar rather than triggered by a character. That is a deliberate UX change
- * and the reason this test moved with it.
+ * They started as a `%` suggestion list a hand-built editor drew itself. When
+ * Jodit took over the typing surface that list was replaced by a dropdown
+ * beside the toolbar, because intercepting Jodit's keystrokes to draw our own
+ * popup was exactly the editor behaviour we had stopped maintaining. It is back
+ * inline, on `%`, because a control beside the field is not where an author is
+ * looking -- but it is now one implementation inside the shared editor, and it
+ * offers records as well as variables.
+ *
+ * What has never moved is the substance: a field offers the variables scoped to
+ * its context and no others, and the token it inserts is the one the public
+ * renderer resolves. That is what this file pins. The caret handling belongs to
+ * the shared editor and is covered in a browser.
  */
 
 function CountryContentEditor() {
@@ -31,40 +35,54 @@ function CountryContentEditor() {
 }
 
 describe('TypedBodyEditor country variables', () => {
-  it('offers the variables scoped to a Country and inserts the token it names', async () => {
+  it('no longer puts a variable chooser beside the field', async () => {
     render(<CountryContentEditor />);
-    const chooser = await screen.findByLabelText(/Insert variable into Paragraph 1/);
+    await screen.findByRole('textbox', { name: 'Paragraph 1' });
 
-    // Scoped to the Country context, not the whole variable catalogue.
-    expect(chooser).toHaveTextContent('Country name');
-    expect(chooser).toHaveTextContent('Country slug');
-    expect(chooser).not.toHaveTextContent(/job/i);
-
-    await userEvent.selectOptions(chooser, 'countrySlug');
-
-    await waitFor(() =>
-      expect(screen.getByRole('textbox', { name: 'Paragraph 1' })).toHaveTextContent(
-        '{countrySlug}',
-      ),
-    );
+    expect(screen.queryByLabelText(/Insert variable/i)).toBeNull();
   });
 
-  it('appends a second variable rather than replacing the first', async () => {
-    render(<CountryContentEditor />);
-    const chooser = await screen.findByLabelText(/Insert variable into Paragraph 1/);
-
-    await userEvent.selectOptions(chooser, 'countrySlug');
-    await waitFor(() =>
-      expect(screen.getByRole('textbox', { name: 'Paragraph 1' })).toHaveTextContent(
-        '{countrySlug}',
-      ),
-    );
-    await userEvent.selectOptions(chooser, 'countryName');
-
-    await waitFor(() => {
-      const body = screen.getByRole('textbox', { name: 'Paragraph 1' });
-      expect(body).toHaveTextContent('{countrySlug}');
-      expect(body).toHaveTextContent('{countryName}');
+  it('offers the variables scoped to a Country and no others', () => {
+    const suggestions = buildSuggestions({
+      query: '',
+      variables: COUNTRY_EDITORIAL_VARIABLES,
+      variableValues: { countryName: 'India', countrySlug: 'india' },
+      context: 'country',
+      entities: [],
     });
+
+    const labels = suggestions.map((row) => row.label);
+    expect(labels).toContain('Country name');
+    expect(labels).toContain('Country slug');
+    expect(labels.join(' ')).not.toMatch(/job/i);
+  });
+
+  it('inserts the value a Country variable names', () => {
+    /* The routed Country page is CountryDetailReference, which does not run
+     * resolveContentVariables -- so a `{countrySlug}` token left in the text
+     * would publish literally. The current value is inserted instead, which is
+     * why this assertion changed shape when the picker did. */
+    const [slug] = buildSuggestions({
+      query: 'slug',
+      variables: COUNTRY_EDITORIAL_VARIABLES,
+      variableValues: { countryName: 'India', countrySlug: 'india' },
+      context: 'country',
+      entities: [],
+    });
+
+    expect(slug.label).toBe('Country slug');
+    expect(slug.insertText).toBe('india');
+  });
+
+  it('keeps a token dynamic in a context whose page resolves one', () => {
+    const [name] = buildSuggestions({
+      query: 'university name',
+      variables: [{ key: 'universityName', label: 'University name' }],
+      variableValues: { universityName: 'IIT Delhi' },
+      context: 'university',
+      entities: [],
+    });
+
+    expect(name.insertText).toBe('{universityName}');
   });
 });

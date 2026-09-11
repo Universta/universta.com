@@ -14,9 +14,15 @@ import { PrismaService } from '../src/prisma/prisma.service';
  * from published universities and offerings, so the tests below pin the
  * source-of-truth rule as much as the persistence:
  *
- *   a stored statistics figure speaks for the country only when an editor took
- *   ownership (`sourceMode` other than DERIVED) *and* recorded where it came
- *   from and when it was checked. Otherwise the live catalogue count wins.
+ *   a stored statistics figure speaks for the country when an editor took
+ *   ownership of it (`sourceMode` other than DERIVED). Otherwise the live
+ *   catalogue count wins.
+ *
+ * It used to also have to name a source and a verification date. That was the
+ * read half of the Country source-verification workflow, withdrawn along with
+ * the controls that fed it -- keeping it would have meant a number an author
+ * typed and saved was quietly replaced by the derived count on the page, with
+ * no field left anywhere to satisfy the condition.
  */
 
 function record(response: { body: unknown }): Record<string, unknown> {
@@ -334,7 +340,7 @@ describe('country profile client contract (e2e)', () => {
     expect(derived?.statistics?.universitiesCount).toBe(2);
   });
 
-  it('publishes a verified manual university count as the override', async () => {
+  it('publishes a manual university count as the override', async () => {
     await saved('statistics', {
       sourceMode: 'MANUAL',
       universitiesCount: 42,
@@ -371,12 +377,42 @@ describe('country profile client contract (e2e)', () => {
     expect(stored.sourceMode).toBe('MANUAL');
   });
 
-  it('ignores an unverified stored count and falls back to the live one', async () => {
-    // Legacy rows predate the source requirement, so the read path -- not only
-    // the write path -- has to hold the line.
+  it('publishes a manual count that carries no verification date', async () => {
+    /* The case that changed. A row an editor owns is published as written,
+     * cited or not -- which is the only behaviour the withdrawn controls leave
+     * available, since nothing in the editor can set verifiedAt any more. */
     await prisma.countryStatistic.updateMany({
       where: { countryId },
-      data: { sourceMode: 'MANUAL', verifiedAt: null, universitiesCount: 500 },
+      data: {
+        sourceMode: 'MANUAL',
+        verifiedAt: null,
+        sourceReference: null,
+        universitiesCount: 500,
+      },
+    });
+
+    const detail = record(
+      await request(app.getHttpServer())
+        .get(`/api/v1/countries/${countrySlug}`)
+        .expect(200),
+    );
+    const statistics = detail.statistics as {
+      universitiesCount: number | null;
+    } | null;
+    expect(statistics?.universitiesCount).toBe(500);
+  });
+
+  it('still falls back to the live count while the row says DERIVED', async () => {
+    /* The rule that remains. DERIVED means "keep following the catalogue", so
+     * a number sitting in the column must not override it. */
+    await prisma.countryStatistic.updateMany({
+      where: { countryId },
+      data: {
+        sourceMode: 'DERIVED',
+        verifiedAt: null,
+        sourceReference: null,
+        universitiesCount: 500,
+      },
     });
 
     const detail = record(

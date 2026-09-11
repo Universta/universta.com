@@ -5,6 +5,8 @@ import {
   useCallback,
   useEffect,
   useImperativeHandle,
+  useMemo,
+  useRef,
   useState,
 } from "react";
 import {
@@ -14,6 +16,7 @@ import {
 import type { CountryProfileBundle } from "./catalog.types";
 import { RichTextEditor } from "@/features/shared/RichTextEditor";
 import { variablesForContext } from "@/features/shared/variable-autocomplete";
+import type { EditorEntityContext } from "@/features/shared/useEntityAutocomplete";
 
 /**
  * Country-owned profile editing.
@@ -106,8 +109,9 @@ function clearedChoices(draft: Draft): Draft {
   return next;
 }
 
-/** What the parent form calls once it has created the Country row, so a
- * profile or intake typed before the first save is written rather than lost. */
+/** What the parent form calls on every save, so a card the author filled in is
+ * written by the button that says it saves the country -- whether or not that
+ * save is the one creating the row. */
 export type CountryProfilesHandle = {
   persistDrafts: (countryId: string) => Promise<void>;
 };
@@ -124,8 +128,19 @@ export type CountryProfilesHandle = {
  */
 export const CountryProfilesEditor = forwardRef<
   CountryProfilesHandle,
-  { countryId?: string; currencyCode?: string }
->(function CountryProfilesEditor({ countryId, currencyCode }, ref) {
+  {
+    countryId?: string;
+    currencyCode?: string;
+    onDirty?: () => void;
+    /* Handed straight to the rich-text fields on these cards, so a profile note
+     * gets the same inline `%` autocomplete as the fields on the country form
+     * above it -- one editor, one behaviour, everywhere. */
+    entityContext?: EditorEntityContext;
+  }
+>(function CountryProfilesEditor(
+  { countryId, currencyCode, onDirty, entityContext },
+  ref,
+) {
   const [bundle, setBundle] = useState<CountryProfileBundle | null>(null);
   const [cost, setCost] = useState<Draft>({});
   const [work, setWork] = useState<Draft>({});
@@ -134,16 +149,64 @@ export const CountryProfilesEditor = forwardRef<
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState("");
+  /**
+   * Which cards the author has changed since they were last read from the
+   * server.
+   *
+   * This is what the country's own Save writes. Filling a card and pressing
+   * the button at the end of the form used to write the country row and drop
+   * the card, because the flush below only ran on the save that created the
+   * country -- so the values were gone on reopen with nothing having reported
+   * a failure. Tracking the edits rather than the contents is what lets that
+   * save write a card the author touched without rewriting three they did not.
+   *
+   * It is a ref because the save path reads it inside a callback the parent
+   * holds, where a stale render's copy would flush the wrong set.
+   */
+  const touched = useRef<Set<Section>>(new Set());
 
   /** Every draft is re-seeded from the server payload, so the concurrency
-   * token a card holds is always the one the API just wrote. */
+   * token a card holds is always the one the API just wrote. A card that came
+   * from the server has no unsaved edit left in it by definition. */
   const seed = useCallback((data: CountryProfileBundle) => {
     setBundle(data);
     setCost((data.cost ?? {}) as Draft);
     setWork((data.work ?? {}) as Draft);
     setLanguage((data.language ?? {}) as Draft);
     setStatistics((data.statistics ?? { sourceMode: "DERIVED" }) as Draft);
+    touched.current = new Set();
   }, []);
+
+  /** One place that records an edit, so every control on every card reports it
+   * the same way and the parent form's unsaved-changes guard covers profiles
+   * as well as the fields it owns directly. */
+  const edit = useCallback(
+    (section: Section, apply: () => void) => {
+      touched.current.add(section);
+      onDirty?.();
+      apply();
+    },
+    [onDirty],
+  );
+
+  /** The setter each card hands to its fields: identical to the raw one except
+   * that it marks the card as edited first. Built once so a card is not handed
+   * a new function identity on every render. */
+  const editing = useMemo(() => {
+    const raw: Record<Section, React.Dispatch<React.SetStateAction<Draft>>> = {
+      cost: setCost,
+      work: setWork,
+      language: setLanguage,
+      statistics: setStatistics,
+    };
+    const wrapped = {} as Record<
+      Section,
+      React.Dispatch<React.SetStateAction<Draft>>
+    >;
+    for (const section of Object.keys(raw) as Section[])
+      wrapped[section] = (value) => edit(section, () => raw[section](value));
+    return (section: Section) => wrapped[section];
+  }, [edit]);
 
   useEffect(() => {
     /* A country's profiles only exist once the country does. */
@@ -174,25 +237,33 @@ export const CountryProfilesEditor = forwardRef<
     [cost, language, statistics, work],
   );
 
-  /* A country created with profile drafts already filled in writes them
-   * immediately afterwards, in the same order the cards appear. Untouched
-   * cards are skipped rather than written as empty rows -- an author who never
-   * opened the Cost card should not end up with a cost profile. */
+  /* What the country's own Save writes, on every save rather than only the one
+   * that created the row.
+   *
+   * Cards the author did not touch are skipped, so an untouched Cost card is
+   * neither written as an empty row on a new country nor rewritten on an
+   * existing one. Cards they did touch still carry the version token they were
+   * read with, so a card another session has changed in the meantime is
+   * refused as stale rather than overwritten -- which is the protection the
+   * create-only guard used to provide, kept without the data loss it caused.
+   *
+   * The re-read at the end is what leaves every card holding the token the API
+   * just wrote, so the next save is not rejected as stale.
+   */
   useImperativeHandle(
     ref,
     () => ({
       persistDrafts: async (newCountryId: string) => {
-        const pending: Section[] = [];
-        if (populated(cost)) pending.push("cost");
-        if (populated(work)) pending.push("work");
-        if (populated(language)) pending.push("language");
-        if (populated(statistics, { sourceMode: "DERIVED" }))
-          pending.push("statistics");
+        const pending = (["cost", "work", "language", "statistics"] as const).filter(
+          (section) => touched.current.has(section),
+        );
+        if (!pending.length) return;
         for (const section of pending)
           await putCountryProfile(newCountryId, section, payloadFor(section));
+        seed((await getCountryProfiles(newCountryId)).data);
       },
     }),
-    [cost, language, payloadFor, statistics, work],
+    [payloadFor, seed],
   );
 
   async function save(section: Section) {
@@ -276,10 +347,13 @@ export const CountryProfilesEditor = forwardRef<
     );
 
   const derivedCount = bundle?.derivedUniversitiesCount ?? null;
-  const usingManualCount =
-    text(statistics.sourceMode) !== "DERIVED" &&
-    Boolean(statistics.sourceReference) &&
-    Boolean(statistics.verifiedAt);
+  /* Choosing anything other than "count them automatically" is the author
+   * taking ownership of the number, and that is now the whole test. It used to
+   * also require a source reference and a verification date, which this card
+   * no longer asks for -- leaving that condition in place would have meant a
+   * number the author typed and saved was silently ignored on the public page
+   * with no control left anywhere to satisfy it. */
+  const usingManualCount = text(statistics.sourceMode) !== "DERIVED";
 
   return (
     <section className="mt-8 min-w-0 space-y-6" aria-labelledby="country-profiles-heading">
@@ -316,7 +390,8 @@ export const CountryProfilesEditor = forwardRef<
       >
         <Fields
           draft={cost}
-          set={setCost}
+          set={editing("cost")}
+          entityContext={entityContext}
           /* Currency code and symbol are the Country's, not the cost card's --
            * they were duplicated here and could disagree with the identity
            * section. Tuition period and budget band are gone from the editor
@@ -333,8 +408,6 @@ export const CountryProfilesEditor = forwardRef<
             { key: "tuitionNotes", label: "Tuition notes", kind: "richtext", wide: true },
             { key: "livingCostNotes", label: "Living cost notes", kind: "richtext", wide: true },
             { key: "disclaimer", label: "Cost disclaimer", kind: "richtext", wide: true },
-            { key: "sourceReference", label: "Source reference", wide: true },
-            { key: "verifiedAt", label: "Verified on", kind: "date" },
           ]}
         />
       </ProfileCard>
@@ -348,7 +421,8 @@ export const CountryProfilesEditor = forwardRef<
       >
         <Fields
           draft={work}
-          set={setWork}
+          set={editing("work")}
+          entityContext={entityContext}
           fields={[
             { key: "visaType", label: "Visa type" },
             { key: "visaProcessingTime", label: "Visa processing time" },
@@ -380,8 +454,6 @@ export const CountryProfilesEditor = forwardRef<
             { key: "visaInformation", label: "Visa process", kind: "richtext", wide: true },
             { key: "proofOfFundsSummary", label: "Proof of funds summary", kind: "richtext", wide: true },
             { key: "disclaimer", label: "Work disclaimer", kind: "richtext", wide: true },
-            { key: "sourceReference", label: "Source reference", wide: true },
-            { key: "verifiedAt", label: "Verified on", kind: "date" },
           ]}
         />
       </ProfileCard>
@@ -395,7 +467,8 @@ export const CountryProfilesEditor = forwardRef<
       >
         <Fields
           draft={language}
-          set={setLanguage}
+          set={editing("language")}
+          entityContext={entityContext}
           fields={[
             { key: "ieltsRequirement", label: "IELTS requirement", kind: "select", options: LANGUAGE_REQUIREMENTS },
             { key: "ieltsMinScore", label: "IELTS minimum score", kind: "number", min: 0, max: 9, step: 0.5 },
@@ -413,8 +486,6 @@ export const CountryProfilesEditor = forwardRef<
             { key: "waiverNotes", label: "Waiver notes", kind: "richtext", wide: true },
             { key: "generalNotes", label: "General notes", kind: "richtext", wide: true },
             { key: "disclaimer", label: "Language disclaimer", kind: "richtext", wide: true },
-            { key: "sourceReference", label: "Source reference", wide: true },
-            { key: "verifiedAt", label: "Verified on", kind: "date" },
           ]}
         />
       </ProfileCard>
@@ -432,7 +503,7 @@ export const CountryProfilesEditor = forwardRef<
             className={inputClass}
             value={text(statistics.sourceMode) || "DERIVED"}
             onChange={(event) =>
-              setStatistics((current) => ({
+              editing("statistics")((current) => ({
                 ...current,
                 sourceMode: event.target.value,
               }))
@@ -453,31 +524,24 @@ export const CountryProfilesEditor = forwardRef<
         </label>
         <Fields
           draft={statistics}
-          set={setStatistics}
+          set={editing("statistics")}
+          entityContext={entityContext}
           fields={[
             { key: "universitiesCount", label: "Universities count", kind: "number" },
             { key: "internationalStudentsCount", label: "International students", kind: "number" },
-            { key: "sourceReference", label: "Source reference", wide: true },
-            { key: "verifiedAt", label: "Verified on", kind: "date" },
           ]}
         />
         <p className="sm:col-span-2 rounded-xl bg-[#F8FAFC] p-3 text-sm leading-6 text-[#475467]">
-          {text(statistics.sourceMode) === "DERIVED" || !statistics.sourceMode ? (
-            <>
-              The country page counts published universities itself
-              {derivedCount === null ? "" : ` — currently ${derivedCount}`}. Any
-              number typed above is stored but not shown.
-            </>
-          ) : usingManualCount ? (
+          {usingManualCount ? (
             <>
               The number above is shown on the country page instead of the live
               count{derivedCount === null ? "" : ` of ${derivedCount}`}.
             </>
           ) : (
             <>
-              Add a source reference and a verification date, or the country
-              page keeps counting published universities itself
-              {derivedCount === null ? "" : ` (${derivedCount})`}.
+              The country page counts published universities itself
+              {derivedCount === null ? "" : ` — currently ${derivedCount}`}. Any
+              number typed above is stored but not shown.
             </>
           )}
         </p>
@@ -487,21 +551,10 @@ export const CountryProfilesEditor = forwardRef<
   );
 });
 
-/** Whether an author actually put something in a card, so an untouched one is
- * not written as an empty child record on the first save. A field the card
- * starts on -- statistics opens on "DERIVED" -- only counts once it has been
- * changed to something else, rather than counting merely for existing. */
-function populated(draft: Draft, defaults: Draft = {}): boolean {
-  return Object.entries(draft).some(
-    ([key, value]) =>
-      key !== "updatedAt" &&
-      value !== "" &&
-      value !== null &&
-      value !== undefined &&
-      value !== false &&
-      value !== defaults[key],
-  );
-}
+/* `populated` used to decide which cards the first save flushed, by inspecting
+ * their contents. It has been replaced by the edit tracking above: what makes a
+ * card worth writing is that the author changed it, which is also true of a
+ * card on an existing country whose stored contents already look populated. */
 
 const LABELS: Record<Section, string> = {
   cost: "Cost and budget",
@@ -564,10 +617,12 @@ function Fields({
   draft,
   set,
   fields,
+  entityContext,
 }: {
   draft: Draft;
   set: React.Dispatch<React.SetStateAction<Draft>>;
   fields: FieldSpec[];
+  entityContext?: EditorEntityContext;
 }) {
   return (
     <>
@@ -583,6 +638,7 @@ function Fields({
                 value={text(draft[field.key])}
                 onChange={patch}
                 allowedVariables={variablesForContext("country")}
+                entityContext={entityContext}
                 enableImages={false}
                 minHeight="min-h-28"
               />

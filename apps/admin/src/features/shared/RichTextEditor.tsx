@@ -3,6 +3,7 @@
 import dynamic from 'next/dynamic';
 import type { EditorialMedia } from '@/features/catalog/catalog.types';
 import type { DynamicVariable } from './variable-autocomplete';
+import type { EditorEntityContext } from './useEntityAutocomplete';
 
 /**
  * The single rich-text control every Country field uses. Its props are the
@@ -33,6 +34,11 @@ export type RichTextEditorProps = {
   ariaLabel?: string;
   placeholder?: string;
   hideLabel?: boolean;
+  /** What the inline `%` autocomplete should know about the record being
+   * edited: which country it belongs to (so related records rank first), which
+   * variable registry applies, and the current form values, so `%country`
+   * resolves what is on screen before the record has been saved. */
+  entityContext?: EditorEntityContext;
 };
 
 const JoditRichText = dynamic(

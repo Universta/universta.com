@@ -5,9 +5,12 @@ import JoditEditor from 'jodit-react';
 import { Jodit } from 'jodit';
 import type { IJodit } from 'jodit/esm/types/jodit';
 import { MediaPickerDialog } from '@/features/catalog/editorial/MediaPickerDialog';
-import type { EditorialMedia } from '@/features/catalog/catalog.types';
-import type { DynamicVariable } from './variable-autocomplete';
 import { sanitizeEditorHtml, type RichTextEditorProps } from './RichTextEditor';
+import { suggestionHtml, type Suggestion } from './entity-autocomplete';
+import {
+  triggerAtCaret,
+  useEntityAutocomplete,
+} from './useEntityAutocomplete';
 
 /**
  * The Admin WYSIWYG, wrapping Jodit's own editor and toolbar.
@@ -34,10 +37,10 @@ export function JoditRichText({
   ariaLabel,
   placeholder,
   hideLabel = false,
+  entityContext,
 }: RichTextEditorProps) {
   const isDisabled = disabled || readOnly;
   const editorRef = useRef<IJodit | null>(null);
-  const [variable, setVariable] = useState('');
   /* Whether Jodit has produced its editable element. Jodit is loaded on
    * demand, so it can finish initialising either side of the record being
    * edited; gating on this means the read-only state is applied once both are
@@ -266,53 +269,159 @@ export function JoditRichText({
     [insertHtml, media],
   );
 
-  const insertVariable = useCallback(
-    (key: string) => {
-      if (!key) return;
-      insertHtml(`{${key}}`);
-      setVariable('');
+  /* The inline `%` autocomplete replaces the "Insert variable [Choose…]"
+   * dropdown that used to sit above every field. An author types where they
+   * are already typing; nothing about picking a record belongs in a control
+   * beside the editor. */
+  const autocomplete = useEntityAutocomplete({
+    variables: allowedVariables,
+    context: entityContext,
+    enabled: ready && !isDisabled,
+  });
+  const { close: closeMenu, open: menuOpen, setQuery: setMenuQuery } = autocomplete;
+  /* The range the chosen suggestion replaces, captured with the query so the
+   * insertion never has to re-derive it from a caret that may have moved. */
+  const triggerRange = useRef<Range | null>(null);
+  /* The token the author dismissed with Escape.
+   *
+   * Closing the menu is not enough on its own: the keyup that follows re-reads
+   * the caret, finds the same `%token` still sitting there, and reopens it --
+   * so Escape appeared to do nothing. The token stays dismissed until it
+   * changes or the caret leaves it, which is also what makes Escape mean
+   * "leave this one alone" rather than "close for one frame". */
+  const dismissed = useRef<string | null>(null);
+  const [anchor, setAnchor] = useState<{ top: number; left: number } | null>(null);
+
+  const syncTrigger = useCallback(() => {
+    const area = editorRef.current?.editor ?? null;
+    const found = triggerAtCaret(area);
+    if (!found) {
+      triggerRange.current = null;
+      dismissed.current = null;
+      closeMenu();
+      setAnchor(null);
+      return;
+    }
+    if (dismissed.current === found.query) {
+      triggerRange.current = null;
+      return;
+    }
+    dismissed.current = null;
+    triggerRange.current = found.range;
+    setMenuQuery(found.query);
+    /* Positioned against the editable's own box, so the menu travels with a
+     * scrolled form instead of being pinned to the viewport. */
+    const host = area?.getBoundingClientRect();
+    setAnchor(
+      host
+        ? { top: found.rect.bottom - host.top + 4, left: found.rect.left - host.left }
+        : null,
+    );
+  }, [closeMenu, setMenuQuery]);
+
+  const applySuggestion = useCallback(
+    (suggestion: Suggestion) => {
+      const editor = editorRef.current;
+      const range = triggerRange.current;
+      if (!editor || !range) return;
+      /* Delete the `%token` first, then let Jodit insert at the collapsed
+       * caret: its own insertion keeps undo history and the caret position
+       * correct, which hand-built DOM surgery does not. */
+      range.deleteContents();
+      const selection = editor.editor?.ownerDocument.getSelection();
+      if (selection) {
+        range.collapse(true);
+        selection.removeAllRanges();
+        selection.addRange(range);
+      }
+      editor.selection.insertHTML(suggestionHtml(suggestion));
+      triggerRange.current = null;
+      dismissed.current = null;
+      closeMenu();
+      setAnchor(null);
+      onChangeRef.current(editor.value);
     },
-    [insertHtml],
+    [closeMenu],
   );
+
+  /* Caret tracking. Bound once for the life of the field: these listeners only
+   * ever re-read the caret, so nothing here goes stale. */
+  useEffect(() => {
+    const area = editorRef.current?.editor;
+    if (!ready || !area) return;
+    const onCaretMove = () => window.setTimeout(syncTrigger, 0);
+    const onBlur = () => {
+      /* Left open, a menu would hang over the next field. The mousedown that
+       * picks a suggestion runs before this, so a click still lands. */
+      window.setTimeout(() => {
+        triggerRange.current = null;
+        closeMenu();
+        setAnchor(null);
+      }, 120);
+    };
+    area.addEventListener('keyup', onCaretMove);
+    area.addEventListener('mouseup', onCaretMove);
+    area.addEventListener('blur', onBlur);
+    return () => {
+      area.removeEventListener('keyup', onCaretMove);
+      area.removeEventListener('mouseup', onCaretMove);
+      area.removeEventListener('blur', onBlur);
+    };
+  }, [closeMenu, ready, syncTrigger]);
+
+  /* The menu's own keys, intercepted on Jodit's editable during the capture
+   * phase -- otherwise Enter breaks the paragraph and the arrows move the caret
+   * before the menu ever sees them.
+   *
+   * Rebound whenever the menu changes rather than reading through a ref: the
+   * handler needs the current highlight and the current list, and re-attaching
+   * one listener is cheaper than the bugs a stale closure causes here. It is
+   * attached only while the menu is open, so ordinary typing is untouched. */
+  const { active, setActive, suggestions } = autocomplete;
+  useEffect(() => {
+    const area = editorRef.current?.editor;
+    if (!ready || !area || !menuOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!['ArrowDown', 'ArrowUp', 'Enter', 'Tab', 'Escape'].includes(event.key))
+        return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (event.key === 'Escape') {
+        dismissed.current = autocomplete.query;
+        triggerRange.current = null;
+        closeMenu();
+        setAnchor(null);
+        return;
+      }
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        const step = event.key === 'ArrowDown' ? 1 : -1;
+        setActive((current) => (current + step + suggestions.length) % suggestions.length);
+        return;
+      }
+      const chosen = suggestions[active];
+      if (chosen) applySuggestion(chosen);
+    };
+    area.addEventListener('keydown', onKeyDown, true);
+    return () => area.removeEventListener('keydown', onKeyDown, true);
+  }, [active, applySuggestion, autocomplete.query, closeMenu, menuOpen, ready, setActive, suggestions]);
 
   return (
     <div className={`text-sm font-semibold ${minHeight ? '' : ''}`}>
       {hideLabel ? null : <span className="mb-2 block">{label}</span>}
-      {allowedVariables.length || (enableImages && media.length) ? (
+      {enableImages && media.length ? (
         <div className="mb-2 flex flex-wrap items-center gap-2">
-          {allowedVariables.length ? (
-            <label className="flex items-center gap-2 text-xs font-semibold text-[#475467]">
-              Insert variable
-              <select
-                aria-label={`Insert variable into ${label}`}
-                className="rounded-lg border border-[#D9E0EA] px-2 py-1 font-normal"
-                value={variable}
-                disabled={isDisabled}
-                onChange={(event) => insertVariable(event.target.value)}
-              >
-                <option value="">Choose…</option>
-                {allowedVariables.map((item: DynamicVariable) => (
-                  <option key={item.key} value={item.key}>
-                    {item.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-          ) : null}
-          {enableImages && media.length ? (
-            <MediaPickerDialog
-              label="Insert image"
-              value=""
-              media={media}
-              onChange={insertMedia}
-            />
-          ) : null}
+          <MediaPickerDialog
+            label="Insert image"
+            value=""
+            media={media}
+            onChange={insertMedia}
+          />
         </div>
       ) : null}
       {/* The name is set on Jodit's editable element itself, in
         * `captureEditor` -- not here, or the field would answer to its label
         * twice. */}
-      <div data-rte={label}>
+      <div data-rte={label} className="relative">
         <JoditEditor
           value={value ?? ''}
           config={config}
@@ -320,6 +429,44 @@ export function JoditRichText({
           onBlur={handleBlur}
           editorRef={captureEditor}
         />
+        {menuOpen && anchor ? (
+          <ul
+            role="listbox"
+            aria-label={`Insert a record into ${label}`}
+            className="absolute z-50 max-h-64 w-80 overflow-auto rounded-xl border border-[#D9E0EA] bg-white py-1 shadow-lg"
+            style={{ top: anchor.top, left: anchor.left }}
+          >
+            {autocomplete.suggestions.map((suggestion, index) => (
+              <li key={suggestion.key}>
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={index === autocomplete.active}
+                  /* mousedown, not click: the editable blurs on mousedown
+                   * and the blur handler closes the menu, so a click handler
+                   * would never fire. */
+                  onMouseDown={(event) => {
+                    event.preventDefault();
+                    applySuggestion(suggestion);
+                  }}
+                  onMouseEnter={() => autocomplete.setActive(index)}
+                  className={`block w-full px-3 py-2 text-left text-sm font-normal ${
+                    index === autocomplete.active ? 'bg-[#EEF3FF]' : 'bg-white'
+                  }`}
+                >
+                  <span className="block font-semibold text-[#101828]">
+                    {suggestion.label}
+                  </span>
+                  {suggestion.detail ? (
+                    <span className="block text-xs text-[#667085]">
+                      {suggestion.detail}
+                    </span>
+                  ) : null}
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : null}
       </div>
     </div>
   );

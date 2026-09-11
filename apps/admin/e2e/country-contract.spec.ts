@@ -303,8 +303,8 @@ function box(scope: Page | Locator, name: string) {
 
 /** One profile card. Each is its own <section> with a direct <h3>; the wrapper
  * around them is a <section> too, hence the direct-child heading. Scoping to a
- * card is what makes "Source reference" and "Verified on" unambiguous — they
- * appear in four of the five cards. */
+ * card is what keeps a label that several cards share — "Disclaimer" — pointing
+ * at the one under test. */
 function card(page: Page, heading: string) {
   return page
     .getByRole('heading', { level: 3, name: heading, exact: true })
@@ -741,8 +741,6 @@ test.describe.serial('country client contract, end to end', () => {
     await field(cost, 'Living cost maximum').fill('1110');
     await field(cost, 'Application fee minimum').fill('61');
     await field(cost, 'Application fee maximum').fill('61');
-    await field(cost, 'Source reference').fill('https://acceptance.example.invalid/cost');
-    await field(cost, 'Verified on').fill('2026-01-02');
     await cost.getByRole('button', { name: 'Save cost and budget' }).click();
     await saved();
 
@@ -761,8 +759,6 @@ test.describe.serial('country client contract, end to end', () => {
     await field(work, 'Post-study work available').check();
     await field(work, 'Post-study work maximum months').fill('25');
     await richText(work, 'Visa process').fill('Acceptance visa guidance.');
-    await field(work, 'Source reference').fill('https://acceptance.example.invalid/visa');
-    await field(work, 'Verified on').fill('2026-01-02');
     await work.getByRole('button', { name: 'Save work and visa' }).click();
     await saved();
     /* Stored as the Country's currency, not as anything typed on this card --
@@ -784,10 +780,22 @@ test.describe.serial('country client contract, end to end', () => {
     await field(language, 'IELTS minimum score').fill('6.5');
     await richText(language, 'IELTS notes').fill('No band below 6.0.');
     await field(language, 'PTE minimum score').fill('59');
-    await field(language, 'Source reference').fill('https://acceptance.example.invalid/lang');
-    await field(language, 'Verified on').fill('2026-01-02');
     await language.getByRole('button', { name: 'Save english requirements' }).click();
     await saved();
+
+    /* The Country source-verification workflow is withdrawn. Every card above
+     * saved without either control, and neither is on screen to be filled --
+     * asserted across all four cards rather than the three exercised here. */
+    for (const heading of [
+      'Cost and budget',
+      'Work and visa',
+      'English requirements',
+      'Statistics',
+    ]) {
+      const section = card(page, heading);
+      await expect(section.getByLabel(/^Source reference/)).toHaveCount(0);
+      await expect(section.getByLabel(/^Verified on/)).toHaveCount(0);
+    }
 
     const stored = await storedProfiles(countryId);
     expect(String(stored.cost?.tuitionMin)).toBe('9100');
