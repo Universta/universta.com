@@ -5246,3 +5246,10 @@
   color: var(--ink-2);
   text-align: right;
 }
+
+/* A section whose author gave it a call to action prints one, centred
+   under whatever body the section type produced. */
+.cref-dest .sec-cta {
+  margin-top: 26px;
+  text-align: center;
+}

@@ -663,3 +663,236 @@ describe('CountryDetailReference name-only country', () => {
     expect(html).not.toContain('class="lede"');
   });
 });
+
+/**
+ * What the Country editor can publish, and what this page used to show of it.
+ *
+ * The section list was a hard-coded four keys read only as `paragraphs`, so a
+ * section filed under any other key, or authored as a fact grid, a set of
+ * steps, a card grid or a call to action, arrived in the payload and was
+ * dropped in silence. On the destination this was reported against that was
+ * five of seven sections. The bodies below are the exact shapes the Admin
+ * editor writes for each of the six section types.
+ */
+function section(
+  sectionKey: string,
+  sectionType: string,
+  bodyJson: Record<string, unknown>,
+  extra: Record<string, unknown> = {},
+) {
+  return {
+    id: `s-${sectionKey}`,
+    sectionKey,
+    sectionType,
+    eyebrow: null,
+    heading: `Heading for ${sectionKey}`,
+    subheading: null,
+    bodyJson,
+    primaryMedia: null,
+    secondaryMedia: null,
+    ctaLabel: null,
+    ctaUrl: null,
+    configurationJson: null,
+    displayOrder: 0,
+    status: 'ACTIVE',
+    createdAt: '2026-09-11T00:00:00.000Z',
+    updatedAt: '2026-09-11T00:00:00.000Z',
+    ...extra,
+  };
+}
+
+function withSections(sections: unknown[]): CountryDetailReferenceProps {
+  const base = build(emptyProfiles);
+  return {
+    ...base,
+    page: { ...base.page, sections: sections as never },
+  };
+}
+
+describe('CountryDetailReference editorial sections', () => {
+  it('renders every authored section, whatever its key and body type', () => {
+    const html = renderToStaticMarkup(
+      <CountryDetailReference
+        {...withSections([
+          section('why-study', 'RICH_TEXT', {
+            paragraphs: ['<p>Teaching is in English.</p>'],
+          }),
+          section('cost-of-study', 'FACT_GRID', {
+            items: [{ label: 'Currency', value: 'Indian Rupee' }],
+          }),
+          section('application-steps', 'STEPS', {
+            items: [
+              {
+                step: '1',
+                title: 'Shortlist programmes',
+                description: '<p>Read the credit structure.</p>',
+              },
+            ],
+          }),
+          section('student-life', 'CARD_GRID', {
+            items: [
+              {
+                title: 'Hostels are the default',
+                description: '<p>Most students live on campus.</p>',
+              },
+            ],
+          }),
+          section('choosing-a-university', 'RICH_TEXT', {
+            paragraphs: ['<p>Start with the department.</p>'],
+          }),
+          section('after-you-graduate', 'CTA', {
+            supportingText: '<p>Plan the degree and what follows together.</p>',
+          }),
+          section('a-key-nobody-predefined', 'MEDIA', {
+            caption: '<p>A caption the author wrote.</p>',
+          }),
+        ])}
+      />,
+    );
+
+    /* The two keys the old allow-list happened to cover. */
+    expect(html).toContain('Teaching is in English.');
+    expect(html).toContain('Start with the department.');
+    /* The five it dropped: a fact grid, steps, cards, a call to action and a
+     * key that was never in the list at all. */
+    expect(html).toContain('Indian Rupee');
+    expect(html).toContain('Shortlist programmes');
+    expect(html).toContain('Hostels are the default');
+    expect(html).toContain('Plan the degree and what follows together.');
+    expect(html).toContain('A caption the author wrote.');
+    expect(html).toContain('id="country-a-key-nobody-predefined"');
+  });
+
+  it('prints a section call to action when the author gave it one', () => {
+    const html = renderToStaticMarkup(
+      <CountryDetailReference
+        {...withSections([
+          section(
+            'after-you-graduate',
+            'CTA',
+            { supportingText: '<p>Talk it through first.</p>' },
+            { ctaLabel: 'Speak to an adviser', ctaUrl: '/consultants' },
+          ),
+        ])}
+      />,
+    );
+    expect(html).toContain('Speak to an adviser');
+    expect(html).toContain('href="/consultants"');
+  });
+
+  it('leaves out a section whose body the author never filled in', () => {
+    const html = renderToStaticMarkup(
+      <CountryDetailReference
+        {...withSections([section('why-study', 'RICH_TEXT', { paragraphs: [] })])}
+      />,
+    );
+    expect(html).not.toContain('id="country-why-study"');
+  });
+});
+
+/**
+ * Cost guidance is prose as often as it is figures. A destination that declines
+ * to publish a tuition range -- the honest choice where the range would be
+ * invented -- still has something to say about what drives the cost, and the
+ * section was gated on the figures alone, so none of it was published.
+ */
+describe('CountryDetailReference cost section', () => {
+  const costProse = {
+    cost: {
+      currencyCode: 'INR',
+      tuitionNotes: '<p>Government-funded institutions charge least.</p>',
+      livingCostNotes: '<p>A hostel room is the cheapest way to live.</p>',
+      disclaimer: '<p>Confirm fees with the institution.</p>',
+    },
+    work: null,
+    language: null,
+    statistics: null,
+    intakes: [],
+  } as unknown as CountryDetailReferenceProps['page']['profiles'];
+
+  it('publishes the notes when no numeric range was entered', () => {
+    const html = renderToStaticMarkup(
+      <CountryDetailReference {...build(costProse)} />,
+    );
+    expect(html).toContain('id="cost"');
+    expect(html).toContain('Government-funded institutions charge least.');
+    expect(html).toContain('A hostel room is the cheapest way to live.');
+    expect(html).toContain('Confirm fees with the institution.');
+  });
+
+  it('leaves out the empty range table when there are no figures', () => {
+    const html = renderToStaticMarkup(
+      <CountryDetailReference {...build(costProse)} />,
+    );
+    /* The table header would otherwise print above no rows at all. */
+    expect(html).not.toContain('Range</span>');
+  });
+
+  it('still omits the section when there is neither a figure nor a note', () => {
+    const html = renderToStaticMarkup(
+      <CountryDetailReference {...build(emptyProfiles)} />,
+    );
+    expect(html).not.toContain('id="cost"');
+  });
+});
+
+/**
+ * Work guidance whose own answer is "no".
+ *
+ * The part-time and post-study summaries were rendered only inside highlight
+ * cards that require the right to exist. A destination that permits neither --
+ * and explains why at length, because that is exactly what a student needs to
+ * read -- published none of it.
+ */
+describe('CountryDetailReference work guidance', () => {
+  const restrictive = {
+    cost: null,
+    work: {
+      partTimeAllowed: false,
+      postStudyWorkAvailable: false,
+      partTimeSummary: '<p>The student visa is granted for study alone.</p>',
+      postStudyWorkSummary: '<p>There is no general post-study work visa.</p>',
+      immigrationPathwaySummary: '<p>Settlement routes are narrow.</p>',
+      immigrationPathwayStrength: 'LIMITED',
+    },
+    language: null,
+    statistics: null,
+    intakes: [],
+  } as unknown as CountryDetailReferenceProps['page']['profiles'];
+
+  it('publishes the summaries even where the answer is no', () => {
+    const html = renderToStaticMarkup(
+      <CountryDetailReference {...build(restrictive)} />,
+    );
+    expect(html).toContain('id="visa"');
+    expect(html).toContain('The student visa is granted for study alone.');
+    expect(html).toContain('There is no general post-study work visa.');
+  });
+
+  it('does not turn a restriction into a positive claim', () => {
+    const html = renderToStaticMarkup(
+      <CountryDetailReference {...build(restrictive)} />,
+    );
+    /* The highlight cards assert a right exists. Neither may appear here. */
+    expect(html).not.toContain('Work while you study');
+    expect(html).not.toContain('Post-study work rights');
+  });
+
+  it('does not print a summary twice when a card already used it', () => {
+    const permissive = {
+      ...(restrictive as unknown as Record<string, unknown>),
+      work: {
+        partTimeAllowed: true,
+        partTimeSummary: '<p>Twenty hours a week in term time.</p>',
+        partTimeHoursPerWeek: '20',
+      },
+    } as unknown as CountryDetailReferenceProps['page']['profiles'];
+    const html = renderToStaticMarkup(
+      <CountryDetailReference {...build(permissive)} />,
+    );
+    expect(html).toContain('Work while you study');
+    expect(
+      html.split('Twenty hours a week in term time.').length - 1,
+    ).toBe(1);
+  });
+});

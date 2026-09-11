@@ -54,6 +54,12 @@ export type CountryDetailReferenceProps = {
   courseTotal: number;
 };
 
+/** Section bodies are stored as free-form JSON, so every field read out of one
+ * is whatever the author's editor put there. */
+function str(value: unknown) {
+  return typeof value === "string" ? value : "";
+}
+
 function humanise(value: string) {
   return value
     .toLowerCase()
@@ -283,6 +289,48 @@ export function CountryDetailReference(props: CountryDetailReferenceProps) {
     },
   ].filter(Boolean) as Array<{ label: string; value: string; note: string }>;
 
+  /* Work guidance that the highlight cards above did not already publish.
+   *
+   * `partTimeSummary` was rendered only inside the "Work while you study" card,
+   * which requires `partTimeAllowed`; `postStudyWorkSummary` only inside the
+   * "Post-study work rights" card, which requires the right to exist and a
+   * duration to go with it. For a destination where the honest answer to both
+   * is no -- and India is one -- the author's own explanation of what the rules
+   * actually are was written, saved, served, and then dropped by the very
+   * condition it existed to explain.
+   *
+   * The cards stay as they are: a card headed "Work while you study" is a claim
+   * and must not appear where the answer is no. The prose is not a claim, so it
+   * moves into the visa section, and only when a card has not already used it. */
+  const workProse = [
+    !whyCards.some((card) => card.p === work?.partTimeSummary) &&
+      work?.partTimeSummary && ["Working during your studies", work.partTimeSummary],
+    !whyCards.some((card) => card.p === work?.postStudyWorkSummary) &&
+      work?.postStudyWorkSummary && [
+        "After you graduate",
+        work.postStudyWorkSummary,
+      ],
+    !whyCards.some((card) => card.p === work?.immigrationPathwaySummary) &&
+      work?.immigrationPathwaySummary && [
+        "Staying on longer term",
+        work.immigrationPathwaySummary,
+      ],
+  ].filter(Boolean) as Array<[string, string]>;
+
+  /* The section used to be gated on `costRows.length` alone, so a destination
+   * whose author wrote the tuition, living-cost and disclaimer guidance but
+   * left the numeric ranges empty -- which is the honest thing to do where a
+   * range would be invented -- published no cost section at all. Their copy
+   * reached this component and was dropped by a condition about a different
+   * field. Any authored cost content is enough to earn the section; the table
+   * inside it still appears only when there are figures to put in it. */
+  const costHasContent = Boolean(
+    costRows.length ||
+      cost?.tuitionNotes ||
+      cost?.livingCostNotes ||
+      cost?.disclaimer,
+  );
+
   const languageRows = [
     ["IELTS", language?.ieltsRequirement, language?.ieltsMinScore, language?.ieltsNotes],
     ["TOEFL", language?.toeflRequirement, language?.toeflMinScore, language?.toeflNotes],
@@ -332,39 +380,83 @@ export function CountryDetailReference(props: CountryDetailReferenceProps) {
   /* The four long-form fields in the client contract map to stable section
    * keys. `overview` is rendered separately above, so it is excluded here to
    * avoid showing the same body twice. */
-  const clientSections = (
-    [
-      ["why-study", `Why study in ${country.name}`],
-      // These are the keys the Country editor actually offers; "admission-process"
-      // and "cost-breakdown" read naturally but are not in its vocabulary, so a
-      // section written for them could never reach this page.
-      ["application-steps", "Admission process"],
-      ["cost-of-study", "Cost breakdown"],
-      ["visa-process", "Visa process"],
-    ] as Array<[string, string]>
-  )
-    .map(([key, fallbackHeading]) => {
-      const section = page.sections.find((row) => row.sectionKey === key);
-      if (!section) return null;
-      const body = (section.bodyJson ?? {}) as { paragraphs?: unknown };
+  /**
+   * Every long-form section the author published, in the order they ordered
+   * them.
+   *
+   * This used to be a hard-coded list of four keys whose bodies were read as
+   * `paragraphs` and nothing else, which quietly threw away most of what the
+   * Country editor can produce. The editor offers a free-text section key and
+   * six body types; a section filed under any other key, or written as a fact
+   * grid, a set of steps, a card grid or a call to action, reached this
+   * component in the payload and was dropped without trace. On the destination
+   * this was reported against that was five of seven sections.
+   *
+   * The friendly headings for the conventional keys are kept as fallbacks, so
+   * a section whose author left the heading blank still gets the one the page
+   * used to give it.
+   */
+  const sectionFallbackHeading: Record<string, string> = {
+    "why-study": `Why study in ${country.name}`,
+    "application-steps": "Admission process",
+    "cost-of-study": "Cost breakdown",
+    "visa-process": "Visa process",
+  };
+  const sectionItems = (body: Record<string, unknown>) =>
+    Array.isArray(body.items)
+      ? (body.items as Array<Record<string, unknown>>).map((item) => ({
+          /* FACT_GRID writes `label`/`value`; STEPS and CARD_GRID write
+           * `title`/`description`, with STEPS adding its own `step`. Reading
+           * both names keeps one renderer honest across all three. */
+          step: str(item.step),
+          title: str(item.title) || str(item.label),
+          body: str(item.description) || str(item.value),
+        }))
+      : [];
+  const clientSections = page.sections
+    /* `overview` is rendered above as the country's own overview, so showing
+     * it again here would print the same body twice. */
+    .filter((section) => section.sectionKey !== "overview")
+    .map((section) => {
+      const body = (section.bodyJson ?? {}) as Record<string, unknown>;
       const paragraphs = Array.isArray(body.paragraphs)
-        ? body.paragraphs.filter(
+        ? (body.paragraphs as unknown[]).filter(
             (line): line is string => typeof line === "string" && Boolean(line.trim()),
           )
         : [];
-      if (!paragraphs.length) return null;
+      const items = sectionItems(body).filter(
+        (item) => item.title.trim() || item.body.trim(),
+      );
+      /* CTA and MEDIA carry a single block of copy under their own name. */
+      const standalone = str(body.supportingText) || str(body.caption);
+      if (!paragraphs.length && !items.length && !standalone.trim()) return null;
       return {
-        key,
-        heading: section.heading ?? fallbackHeading,
-        eyebrow: section.eyebrow ?? null,
+        key: section.sectionKey,
+        type: section.sectionType,
+        heading:
+          section.heading?.trim() ||
+          sectionFallbackHeading[section.sectionKey] ||
+          "",
+        eyebrow: section.eyebrow,
+        subheading: section.subheading,
         paragraphs,
+        items,
+        standalone,
+        ctaLabel: section.ctaLabel,
+        ctaUrl: section.ctaUrl,
       };
     })
     .filter(Boolean) as Array<{
     key: string;
+    type: string;
     heading: string;
     eyebrow: string | null;
+    subheading: string | null;
     paragraphs: string[];
+    items: Array<{ step: string; title: string; body: string }>;
+    standalone: string;
+    ctaLabel: string | null;
+    ctaUrl: string | null;
   }>;
 
   const statRows = [
@@ -450,10 +542,13 @@ export function CountryDetailReference(props: CountryDetailReferenceProps) {
     subjects.length && ["subjects", "Subjects"],
     intakeLabels.length && ["intakes", "Intakes"],
     documents.length && ["documents", "Documents"],
-    costRows.length && ["cost", "Cost"],
+    costHasContent && ["cost", "Cost"],
     scholarships.length && ["scholarships", "Scholarships"],
     languageRows.length && ["language", "English"],
-    (work?.visaInformation || visaFacts.length) && ["visa", "Work and visa"],
+    (work?.visaInformation || visaFacts.length || workProse.length) && [
+      "visa",
+      "Work and visa",
+    ],
     cities.length && ["cities", "Cities"],
     statRows.length && ["statistics", "At a glance"],
     ...clientSections.map(
@@ -897,31 +992,35 @@ export function CountryDetailReference(props: CountryDetailReferenceProps) {
       ) : null}
 
       {/* COST */}
-      {costRows.length ? (
+      {costHasContent ? (
         <section className="sec" id="cost">
           <div className="wrap">
             <div className="head">
               <span className="eyebrow">Budget</span>
               <h2>Cost of studying in {country.name}</h2>
-              <p>
-                Published ranges for international students, in{" "}
-                {cost?.currencyCode ?? "local currency"}.
-              </p>
+              {costRows.length ? (
+                <p>
+                  Published ranges for international students, in{" "}
+                  {cost?.currencyCode ?? "local currency"}.
+                </p>
+              ) : null}
             </div>
-            <div className="cost-table">
-              <div className="ct-row h">
-                <span>Item</span>
-                <span>Range</span>
-                <span>Period</span>
-              </div>
-              {costRows.map((row) => (
-                <div className="ct-row" key={row.label}>
-                  <span>{row.label}</span>
-                  <b>{row.value}</b>
-                  <span className="note">{row.note}</span>
+            {costRows.length ? (
+              <div className="cost-table">
+                <div className="ct-row h">
+                  <span>Item</span>
+                  <span>Range</span>
+                  <span>Period</span>
                 </div>
-              ))}
-            </div>
+                {costRows.map((row) => (
+                  <div className="ct-row" key={row.label}>
+                    <span>{row.label}</span>
+                    <b>{row.value}</b>
+                    <span className="note">{row.note}</span>
+                  </div>
+                ))}
+              </div>
+            ) : null}
             {/* Each note is its own field describing a different row of the
               * table above. `??` between them meant a country that filled in
               * tuition notes could never show its living-cost notes. */}
@@ -1040,7 +1139,7 @@ export function CountryDetailReference(props: CountryDetailReferenceProps) {
       ) : null}
 
       {/* VISA */}
-      {work?.visaInformation || visaFacts.length ? (
+      {work?.visaInformation || visaFacts.length || workProse.length ? (
         <section className="sec sec-alt" id="visa">
           <div className="wrap narrow">
             <div className="head">
@@ -1064,6 +1163,12 @@ export function CountryDetailReference(props: CountryDetailReferenceProps) {
                 ))}
               </div>
             ) : null}
+            {workProse.map(([heading, body]) => (
+              <div className="prose" key={heading}>
+                <h3>{heading}</h3>
+                <RichText value={body} />
+              </div>
+            ))}
             <p className="disclaimer">
               Immigration rules change frequently. Always confirm current
               requirements with the official government source before applying.
@@ -1211,16 +1316,85 @@ export function CountryDetailReference(props: CountryDetailReferenceProps) {
               {section.eyebrow ? (
                 <span className="eyebrow">{section.eyebrow}</span>
               ) : null}
-              <h2>{section.heading}</h2>
+              {section.heading ? <h2>{section.heading}</h2> : null}
+              {section.subheading ? (
+                <RichText value={section.subheading} />
+              ) : null}
             </div>
-            <div className="prose">
-              {section.paragraphs.map((paragraph, paragraphIndex) => (
-                <RichText
-                  key={`${section.key}-${paragraphIndex}`}
-                  value={paragraph}
-                />
-              ))}
-            </div>
+            {section.paragraphs.length ? (
+              <div className="prose">
+                {section.paragraphs.map((paragraph, paragraphIndex) => (
+                  <RichText
+                    key={`${section.key}-${paragraphIndex}`}
+                    value={paragraph}
+                  />
+                ))}
+              </div>
+            ) : null}
+            {/* A fact grid is a two-column table of short pairs; steps and
+              * cards are a numbered or unnumbered list of headed blocks. They
+              * differ enough in shape to be worth telling apart and not enough
+              * to be worth three separate renderers. */}
+            {/* Three shapes, three presentations the page already owns: the
+              * fact table the cost section uses, the numbered rail the visa
+              * steps use, and the card grid the "why" section uses. */}
+            {section.items.length
+              ? {
+                  FACT_GRID: (
+                    <div className="cost-table">
+                      {section.items.map((item) => (
+                        <div
+                          className="ct-row"
+                          key={`${section.key}-${item.title}`}
+                        >
+                          <span>{item.title}</span>
+                          <b>{item.body}</b>
+                          <span className="note" />
+                        </div>
+                      ))}
+                    </div>
+                  ),
+                  STEPS: (
+                    <div className="steps">
+                      {section.items.map((item, itemIndex) => (
+                        <div className="step" key={`${section.key}-${itemIndex}`}>
+                          <span className="s-no">
+                            {item.step || String(itemIndex + 1)}
+                          </span>
+                          <div>
+                            {item.title ? <h3>{item.title}</h3> : null}
+                            {item.body ? <RichText value={item.body} /> : null}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ),
+                }[section.type] ?? (
+                  <div className="why-grid">
+                    {section.items.map((item, itemIndex) => (
+                      <article
+                        className="whycard"
+                        key={`${section.key}-${itemIndex}`}
+                      >
+                        {item.title ? <h3>{item.title}</h3> : null}
+                        {item.body ? <RichText value={item.body} /> : null}
+                      </article>
+                    ))}
+                  </div>
+                )
+              : null}
+            {section.standalone ? (
+              <div className="prose">
+                <RichText value={section.standalone} />
+              </div>
+            ) : null}
+            {section.ctaLabel && section.ctaUrl ? (
+              <p className="sec-cta">
+                <Link className="btn btn-primary" href={section.ctaUrl}>
+                  {section.ctaLabel}
+                </Link>
+              </p>
+            ) : null}
           </div>
         </section>
       ))}

@@ -312,3 +312,143 @@ describe('legacy source and verification values', () => {
     expect(stored.work?.visaProcessingTime).toBe('8 weeks');
   });
 });
+
+/**
+ * One card the server refuses must not cost the author the other three.
+ *
+ * The flush wrote the cards in a plain loop with a single `await`, so the first
+ * rejection threw out of the whole thing and the cards behind it were never
+ * sent. In production that is exactly what happened: a cost note longer than
+ * the contract allowed came back 400, and work, English and statistics -- all
+ * valid, all filled in -- were never attempted. The country row itself had
+ * already been written, so the author was left with a saved country, four empty
+ * profile cards and no idea which field had done it.
+ */
+describe('a profile card the server refuses', () => {
+  it('does not stop the other cards from being written', async () => {
+    mocks.putCountryProfile.mockImplementation(
+      async (_id: string, section: string, payload: Record<string, unknown>) => {
+        if (section === 'cost')
+          throw Object.assign(new Error('tuitionNotes must be shorter'), {
+            code: 'VALIDATION_ERROR',
+            status: 400,
+            details: null,
+          });
+        sent.push({ section, payload });
+        const fields = { ...payload };
+        delete fields.expectedUpdatedAt;
+        stored[section as keyof typeof stored] = {
+          ...fields,
+          updatedAt: new Date().toISOString(),
+        };
+        return { data: stored[section as keyof typeof stored] };
+      },
+    );
+
+    await openCountry();
+    await userEvent.type(screen.getByLabelText(/^Tuition minimum/), '25000');
+    await fillWorkAndVisa();
+    await userEvent.selectOptions(
+      screen.getByLabelText(/^IELTS requirement/),
+      'OPTIONAL',
+    );
+    await userEvent.type(screen.getByLabelText(/^International students/), '58134');
+
+    await userEvent.click(screen.getByRole('button', { name: /^Save draft$/i }));
+    await waitFor(() => expect(mocks.updateCountry).toHaveBeenCalled());
+
+    /* The three valid cards are on the server. */
+    await waitFor(() => expect(stored.work).not.toBeNull());
+    expect(stored.work?.visaType).toBe('Student Visa (S)');
+    expect(stored.language?.ieltsRequirement).toBe('OPTIONAL');
+    expect(stored.statistics?.internationalStudentsCount).toBe('58134');
+    /* The one the server refused is not, and says so. */
+    expect(stored.cost).toBeNull();
+  });
+
+  it('names the card and the server’s reason', async () => {
+    mocks.putCountryProfile.mockImplementation(
+      async (_id: string, section: string) => {
+        if (section === 'cost')
+          throw Object.assign(new Error('tuitionNotes must be shorter'), {
+            code: 'VALIDATION_ERROR',
+            status: 400,
+            details: null,
+          });
+        return { data: {} };
+      },
+    );
+
+    await openCountry();
+    await userEvent.type(screen.getByLabelText(/^Tuition minimum/), '25000');
+    await userEvent.click(screen.getByRole('button', { name: /^Save draft$/i }));
+
+    const alert = await screen.findByRole('alert');
+    expect(alert.textContent).toContain('Cost and budget');
+    expect(alert.textContent).toContain('tuitionNotes must be shorter');
+  });
+
+  it('keeps the refused card pending so a corrected save retries it', async () => {
+    let refuse = true;
+    mocks.putCountryProfile.mockImplementation(
+      async (_id: string, section: string, payload: Record<string, unknown>) => {
+        if (section === 'cost' && refuse)
+          throw Object.assign(new Error('tuitionNotes must be shorter'), {
+            code: 'VALIDATION_ERROR',
+            status: 400,
+            details: null,
+          });
+        sent.push({ section, payload });
+        const fields = { ...payload };
+        delete fields.expectedUpdatedAt;
+        stored[section as keyof typeof stored] = {
+          ...fields,
+          updatedAt: new Date().toISOString(),
+        };
+        return { data: stored[section as keyof typeof stored] };
+      },
+    );
+
+    await openCountry();
+    await userEvent.type(screen.getByLabelText(/^Tuition minimum/), '25000');
+    await userEvent.click(screen.getByRole('button', { name: /^Save draft$/i }));
+    await screen.findByRole('alert');
+    expect(stored.cost).toBeNull();
+
+    /* The author fixes whatever the server objected to and saves again. The
+     * card is still counted as edited, so it goes out this time -- and it
+     * still carries the value they typed before the refusal. */
+    refuse = false;
+    await userEvent.click(screen.getByRole('button', { name: /^Save draft$/i }));
+    await waitFor(() => expect(stored.cost).not.toBeNull());
+    expect(stored.cost?.tuitionMin).toBe('25000');
+  });
+});
+
+/**
+ * The sequence production actually ran, which nothing covered.
+ *
+ * Every case above opens an existing country. The failure was reported on a
+ * country being created: the editor renders the profile cards before there is
+ * an id to hang them on, the author fills them in, and the country's own save
+ * creates the row and then flushes the cards against the id it just got back.
+ */
+describe('profile cards filled while the country is still being created', () => {
+  it('writes them with the save that creates the country', async () => {
+    render(<CountryForm />);
+    await waitFor(() =>
+      expect(screen.getByLabelText(/^Visa type/)).toBeVisible(),
+    );
+
+    await userEvent.type(screen.getByLabelText(/^Country name/), 'India');
+    await fillWorkAndVisa();
+    await userEvent.type(screen.getByLabelText(/^Tuition minimum/), '25000');
+
+    await userEvent.click(screen.getByRole('button', { name: /^Save draft$/i }));
+
+    await waitFor(() => expect(mocks.createCountry).toHaveBeenCalled());
+    await waitFor(() => expect(stored.work).not.toBeNull());
+    expect(stored.work?.visaType).toBe('Student Visa (S)');
+    expect(stored.cost?.tuitionMin).toBe('25000');
+  });
+});
