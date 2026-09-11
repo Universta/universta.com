@@ -310,12 +310,18 @@ export function JoditRichText({
     triggerRange.current = found.range;
     setMenuQuery(found.query);
     /* Positioned against the editable's own box, so the menu travels with a
-     * scrolled form instead of being pinned to the viewport. */
+     * scrolled form instead of being pinned to the viewport.
+     *
+     * Only written when it actually moves. This runs on every keyup, and a
+     * fresh object each time is a state change each time -- a stream of
+     * renders, for a menu that is sitting still, competing with the arrow keys
+     * that are trying to move the highlight inside it. */
     const host = area?.getBoundingClientRect();
-    setAnchor(
-      host
-        ? { top: found.rect.bottom - host.top + 4, left: found.rect.left - host.left }
-        : null,
+    const next = host
+      ? { top: found.rect.bottom - host.top + 4, left: found.rect.left - host.left }
+      : null;
+    setAnchor((current) =>
+      current?.top === next?.top && current?.left === next?.left ? current : next,
     );
   }, [closeMenu, setMenuQuery]);
 
@@ -349,16 +355,7 @@ export function JoditRichText({
   useEffect(() => {
     const area = editorRef.current?.editor;
     if (!ready || !area) return;
-    const menuNavigationKeys = new Set(['ArrowDown', 'ArrowUp', 'Enter', 'Tab', 'Escape']);
-    const onKeyUp = (event: KeyboardEvent) => {
-      /* A menu-navigation key is handled synchronously below. Re-scanning its
-       * keyup is both unnecessary and harmful: Jodit has already observed the
-       * event by then and may have moved its internal selection, which made a
-       * just-highlighted option snap back to the first result. */
-      if (menuOpen && menuNavigationKeys.has(event.key)) return;
-      window.setTimeout(syncTrigger, 0);
-    };
-    const onMouseUp = () => window.setTimeout(syncTrigger, 0);
+    const onCaretMove = () => window.setTimeout(syncTrigger, 0);
     const onBlur = () => {
       /* Left open, a menu would hang over the next field. The mousedown that
        * picks a suggestion runs before this, so a click still lands. */
@@ -368,85 +365,50 @@ export function JoditRichText({
         setAnchor(null);
       }, 120);
     };
-    area.addEventListener('keyup', onKeyUp);
-    area.addEventListener('mouseup', onMouseUp);
+    area.addEventListener('keyup', onCaretMove);
+    area.addEventListener('mouseup', onCaretMove);
     area.addEventListener('blur', onBlur);
     return () => {
-      area.removeEventListener('keyup', onKeyUp);
-      area.removeEventListener('mouseup', onMouseUp);
+      area.removeEventListener('keyup', onCaretMove);
+      area.removeEventListener('mouseup', onCaretMove);
       area.removeEventListener('blur', onBlur);
     };
-  }, [closeMenu, menuOpen, ready, syncTrigger]);
+  }, [closeMenu, ready, syncTrigger]);
 
-  /* The menu's own keys, intercepted through Jodit's event manager with top
-   * priority. Jodit registers its own target-level key handlers through that
-   * manager, so a native document listener is not enough: the editor can
-   * consume an arrow before a later DOM listener sees it.
+  /* The menu's own keys, intercepted on Jodit's editable during the capture
+   * phase -- otherwise Enter breaks the paragraph and the arrows move the caret
+   * before the menu ever sees them.
    *
    * Rebound whenever the menu changes rather than reading through a ref: the
    * handler needs the current highlight and the current list, and re-attaching
    * one listener is cheaper than the bugs a stale closure causes here. It is
    * attached only while the menu is open, so ordinary typing is untouched. */
   const { active, setActive, suggestions } = autocomplete;
-  /* The handler below is a native capture listener rather than a React event.
-   * React may therefore render between a rapid ArrowDown → ArrowUp → Enter
-   * sequence. Keep the highlighted index synchronously in step with those
-   * keys so Enter always chooses the item currently highlighted in the menu,
-   * not the index captured by a previous effect run. */
-  const activeSuggestionRef = useRef(active);
-  const suggestionsRef = useRef(suggestions);
-  useEffect(() => {
-    activeSuggestionRef.current = active;
-    suggestionsRef.current = suggestions;
-  }, [active, suggestions]);
   useEffect(() => {
     const area = editorRef.current?.editor;
     if (!ready || !area || !menuOpen) return;
     const onKeyDown = (event: KeyboardEvent) => {
-      const target = event.target;
-      if (!(target instanceof Node) || !area.contains(target)) return false;
       if (!['ArrowDown', 'ArrowUp', 'Enter', 'Tab', 'Escape'].includes(event.key))
-        return false;
+        return;
       event.preventDefault();
+      event.stopPropagation();
       if (event.key === 'Escape') {
         dismissed.current = autocomplete.query;
         triggerRange.current = null;
         closeMenu();
         setAnchor(null);
-        return true;
+        return;
       }
       if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-        const currentSuggestions = suggestionsRef.current;
-        if (!currentSuggestions.length) return true;
         const step = event.key === 'ArrowDown' ? 1 : -1;
-        const next =
-          (activeSuggestionRef.current + step + currentSuggestions.length) %
-          currentSuggestions.length;
-        activeSuggestionRef.current = next;
-        setActive(next);
-        return true;
+        setActive((current) => (current + step + suggestions.length) % suggestions.length);
+        return;
       }
-      const chosen = suggestionsRef.current[activeSuggestionRef.current];
+      const chosen = suggestions[active];
       if (chosen) applySuggestion(chosen);
-      return true;
     };
-    const editor = editorRef.current;
-    if (!editor) return;
-    /* Jodit's manager adds its plugins as native bubble listeners. Capture
-     * gets the editor's navigation keys before them; returning false is
-     * Jodit's documented signal to prevent default and stop every later
-     * listener for this event. */
-    const intercept = (event: KeyboardEvent) => {
-      if (onKeyDown(event)) return false;
-      return undefined;
-    };
-    editor.e.on(area, 'keydown.countryAutocomplete', intercept, {
-      top: true,
-      capture: true,
-    });
-    return () => {
-      editor.e.off(area, 'keydown.countryAutocomplete', intercept);
-    };
+    area.addEventListener('keydown', onKeyDown, true);
+    return () => area.removeEventListener('keydown', onKeyDown, true);
   }, [active, applySuggestion, autocomplete.query, closeMenu, menuOpen, ready, setActive, suggestions]);
 
   return (

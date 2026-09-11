@@ -147,15 +147,30 @@ test.describe.serial('rich-text inline entity autocomplete', () => {
     await page.keyboard.type('Partnered with %a');
 
     await expect(menu(page)).toBeVisible({ timeout: 15_000 });
-    const first = menu(page).getByRole('option').first();
-    const chosen = (await first.innerText()).split('\n')[0];
+    /* The list arrives over the network and is rebuilt as it does, so the
+     * options have to stop moving before the arrow keys mean anything: moving
+     * "to the second option" is not a statement about a list that is still one
+     * option long. Settling on a steady count of at least two is what makes the
+     * two assertions below about the product rather than about the race. */
+    const options = menu(page).getByRole('option');
+    await expect(async () => {
+      const count = await options.count();
+      expect(count).toBeGreaterThan(1);
+      await page.waitForTimeout(250);
+      expect(await options.count()).toBe(count);
+    }).toPass({ timeout: 15_000 });
 
-    /* Arrow down then back up lands on the first option again, which proves
-     * Jodit never saw the keys: if it had, the caret would have moved and the
-     * menu would have closed. */
+    const first = options.first();
+    const second = options.nth(1);
+    const chosen = (await first.innerText()).split('\n')[0];
+    await expect(first).toHaveAttribute('aria-selected', 'true');
+
+    /* The highlight moves with the keys, and comes back. Jodit never sees
+     * them: if it had, the caret would have moved and the menu would have
+     * closed. */
     await page.keyboard.press('ArrowDown');
-    const second = menu(page).getByRole('option').nth(1);
     await expect(second).toHaveAttribute('aria-selected', 'true');
+    await expect(first).toHaveAttribute('aria-selected', 'false');
     await page.keyboard.press('ArrowUp');
     await expect(first).toHaveAttribute('aria-selected', 'true');
     await page.keyboard.press('Enter');

@@ -60,6 +60,12 @@ export function useEntityAutocomplete({
   const [query, setQuery] = useState<string | null>(null);
   const [entities, setEntities] = useState<EntityHit[]>([]);
   const [active, setActive] = useState(0);
+  /** The token the menu is currently open on, tracked outside React state.
+   *
+   * Caret tracking re-reads the caret on every keyup, so the same token is
+   * reported many times while the menu is open. This is what makes reopening
+   * on an unchanged token a no-op -- see `openAt` for why that matters. */
+  const queryRef = useRef<string | null>(null);
   const cache = useRef<Cache>(new Map());
   const countryId = context?.countryId;
 
@@ -117,17 +123,33 @@ export function useEntityAutocomplete({
     [context?.variableContext, context?.variableValues, entities, query, variables],
   );
 
-  /* Changing the query resets the highlight, so the first result is the one
-   * Enter takes. Done here rather than in an effect watching `query`: an effect
-   * would render once with the old highlight against the new list. */
+  /**
+   * Opens the menu on a token, resetting the highlight when the token changes.
+   *
+   * The reset has to happen outside the `setQuery` updater, and the ref above
+   * is what lets it. It was written as `setQuery(current => { if (current !==
+   * next) setActive(0); return next })`, which looks equivalent and is not: an
+   * updater runs during render and must be pure. React re-invokes a queued
+   * updater whenever it reprocesses the queue -- which any other state change
+   * triggers, and the caret rescan on every keyup supplies a stream of them --
+   * so that `setActive(0)` fired again and again from a stale base state.
+   * Pressing ArrowDown moved the highlight and the next rescan put it straight
+   * back on the first result, which is exactly what an author saw: the arrow
+   * keys did nothing at all.
+   *
+   * Comparing against the ref instead keeps the whole thing outside render: an
+   * unchanged token returns immediately, so a rescan cannot touch the
+   * highlight, and a genuinely new token resets it once.
+   */
   const openAt = useCallback((next: string) => {
-    setQuery((current) => {
-      if (current !== next) setActive(0);
-      return next;
-    });
+    if (queryRef.current === next) return;
+    queryRef.current = next;
+    setActive(0);
+    setQuery(next);
   }, []);
 
   const close = useCallback(() => {
+    queryRef.current = null;
     setQuery(null);
     setEntities([]);
     setActive(0);
