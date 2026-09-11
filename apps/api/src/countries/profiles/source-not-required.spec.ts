@@ -90,3 +90,44 @@ describe('profile values without a source or verification date', () => {
     ).toThrow();
   });
 });
+
+/**
+ * The Country editor no longer has a Source reference or a Verified on control
+ * on any profile card, so an ordinary save omits both. Rows written while the
+ * workflow existed still carry them, and an edit to an unrelated field must not
+ * be what erases them.
+ */
+describe('a save that omits the withdrawn source fields', () => {
+  it('leaves both columns out of the write rather than nulling them', () => {
+    const data = call<Partial<WorkProfileDto>>('workData', {
+      visaType: 'Student Visa (S)',
+    });
+
+    /* Prisma only writes the keys it is given: undefined leaves the stored
+     * value alone, whereas null would clear it. */
+    expect(data.sourceReference).toBeUndefined();
+    expect(data.verifiedAt).toBeUndefined();
+    expect(data.visaType).toBe('Student Visa (S)');
+  });
+
+  it('does the same when the client echoes an explicit null back', () => {
+    const data = call<Partial<WorkProfileDto>>('workData', {
+      visaType: 'Student Visa (S)',
+      sourceReference: null as unknown as string,
+      verifiedAt: null as unknown as string,
+    });
+
+    expect(data.sourceReference).toBeUndefined();
+    expect(data.verifiedAt).toBeUndefined();
+  });
+
+  it('still stores a source reference an importer supplies', () => {
+    const data = call<Partial<WorkProfileDto>>('workData', {
+      sourceReference: 'https://boi.gov.in/legacy',
+      verifiedAt: '2026-01-02T00:00:00.000Z',
+    });
+
+    expect(data.sourceReference).toBe('https://boi.gov.in/legacy');
+    expect(data.verifiedAt).toBeInstanceOf(Date);
+  });
+});

@@ -288,16 +288,28 @@ describe('profile descriptive fields', () => {
     expect(pte.querySelector('strong')).not.toBeNull();
   });
 
-  it('leaves scores, requirements and dates as ordinary controls', async () => {
+  it('leaves scores and requirements as ordinary controls', async () => {
     mocks.getCountryProfiles.mockResolvedValue({ data: STORED });
     await openEditor();
 
-    for (const label of ['Tuition minimum', 'PTE minimum score', 'Verified on']) {
+    /* "Verified on" stood here as the date example until the Country
+     * source-verification workflow was withdrawn; the profile cards have no
+     * date control left. Its absence is asserted below rather than dropped. */
+    for (const label of ['Tuition minimum', 'PTE minimum score']) {
       const field = await screen.findAllByLabelText(new RegExp(`^${label}`));
       expect(field[0].tagName).toBe('INPUT');
     }
     const requirement = await screen.findAllByLabelText(/^PTE requirement/);
     expect(requirement[0].tagName).toBe('SELECT');
+  });
+
+  it('offers no source reference or verification date on any profile card', async () => {
+    mocks.getCountryProfiles.mockResolvedValue({ data: STORED });
+    await openEditor();
+    await screen.findAllByLabelText(/^Tuition minimum/);
+
+    expect(screen.queryByLabelText(/^Source reference/)).toBeNull();
+    expect(screen.queryByLabelText(/^Verified on/)).toBeNull();
   });
 });
 

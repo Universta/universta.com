@@ -411,12 +411,11 @@ export function CountryDetailReference(props: CountryDetailReferenceProps) {
     pathway,
   );
 
-  const verifiedAt =
-    cost?.verifiedAt ??
-    work?.verifiedAt ??
-    language?.verifiedAt ??
-    statistics?.verifiedAt ??
-    null;
+  /* The Country source-verification workflow has been withdrawn: the editor no
+   * longer asks for a source reference or a verification date, so a "verified
+   * <date>" line here could only ever report whatever a legacy row happened to
+   * carry -- stale on most countries and absent on every new one. The columns
+   * remain and are still stored; they are simply not presented. */
 
   /* The client's `content` column. Country.overview is canonical; the legacy
    * editorial "overview" section supplies the body only when it is absent, so
@@ -517,11 +516,6 @@ export function CountryDetailReference(props: CountryDetailReferenceProps) {
           {country.shortDescription ? (
             <RichText className="lede" value={country.shortDescription} />
           ) : null}
-          {verifiedAt ? (
-            <div className="updated">
-              Figures verified {formatDate(verifiedAt)}
-            </div>
-          ) : null}
           <div className="hero-btns">
             <Link href={counselling} className="btn btn-primary btn-lg">
               Get free counselling
@@ -539,11 +533,7 @@ export function CountryDetailReference(props: CountryDetailReferenceProps) {
         {hasQuickFacts ? (
           <aside className="quickfacts">
             <h2>{country.name} at a glance</h2>
-            <p className="qf-note">
-              {verifiedAt
-                ? `Published figures, verified ${formatDate(verifiedAt)}`
-                : "Published figures"}
-            </p>
+            <p className="qf-note">Published figures</p>
             {tuition ? (
               <div className="qf-row">
                 <span>Tuition</span>
@@ -1162,11 +1152,14 @@ export function CountryDetailReference(props: CountryDetailReferenceProps) {
                   Calculated from published universities and course offerings in
                   the Universta catalogue.
                 </p>
-              ) : statistics?.sourceReference ? (
-                <p>
-                  Sourced and verified figures from {country.name}’s statistics
-                  profile.
-                </p>
+              ) : statistics ? (
+                /* Was "Sourced and verified figures", shown when the row
+                 * carried a source reference. The Country source-verification
+                 * workflow is withdrawn and nothing in the editor sets that
+                 * column any more, so the line both disappeared from every new
+                 * country and claimed a check nobody performs. What is still
+                 * true is where the numbers came from. */
+                <p>Published figures from {country.name}’s statistics profile.</p>
               ) : null}
             </div>
             <div className="statgrid" style={{ marginTop: 0 }}>
@@ -1187,7 +1180,7 @@ export function CountryDetailReference(props: CountryDetailReferenceProps) {
         </section>
       ) : identityRows.length ? (
         // Identity is published for every country, so it still has a home when
-        // no verified statistics exist to anchor the section.
+        // no statistics exist to anchor the section.
         <section className="sec sec-alt" id="statistics">
           <div className="wrap">
             <div className="head">
@@ -1332,8 +1325,7 @@ export function CountryDetailReference(props: CountryDetailReferenceProps) {
           <div className="prose" style={{ maxWidth: 760 }}>
             <p>
               Every cost, intake, language and work figure above is taken from{" "}
-              {country.name}’s published profile in the Universta catalogue
-              {verifiedAt ? `, last verified ${formatDate(verifiedAt)}` : ""}.
+              {country.name}’s published profile in the Universta catalogue.
               Nothing on this page is estimated or averaged: where a figure is
               not published, the row is simply absent.
             </p>

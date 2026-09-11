@@ -22,7 +22,8 @@ function fail(status: number, requestId: string, code: string, message: string) 
   });
 }
 
-/** Read-only GET proxy for the internal-link picker's search/resolve calls. */
+/** Read-only GET proxy for the internal-link picker's search/resolve calls
+ * and for the rich-text editor's entity suggestions. */
 export async function proxyInternalLinks(request: NextRequest, path: string) {
   const requestId = request.headers.get("x-request-id")?.slice(0, 100) || randomUUID();
   const authorization = request.headers.get("authorization");

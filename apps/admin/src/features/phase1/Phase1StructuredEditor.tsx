@@ -447,7 +447,7 @@ function Field({ label, value, onChange, error, textarea = false, richText = fal
   return (
     <div className="block text-sm font-semibold">
       <FieldLabel label={label} htmlFor={fieldId} helpKey={helpKey} help={help} required={required} />
-      {richText ? <RichTextEditor label={label} value={value} onChange={onChange} disabled={disabled} hideLabel allowedVariables={variablesForContext(variableContext)} /> : textarea ? <textarea id={fieldId} value={value} onChange={(event) => onChange(event.target.value)} className={`${error ? invalidInputClass : inputClass} min-h-28`} aria-invalid={Boolean(error)} required={required} aria-describedby={error ? errorId : undefined} /> : <input id={fieldId} type={type} value={value} onChange={(event) => onChange(event.target.value)} className={error ? invalidInputClass : inputClass} aria-invalid={Boolean(error)} required={required} aria-describedby={error ? errorId : undefined} />}
+      {richText ? <RichTextEditor label={label} value={value} onChange={onChange} disabled={disabled} hideLabel allowedVariables={variablesForContext(variableContext)} entityContext={{ variableContext }} /> : textarea ? <textarea id={fieldId} value={value} onChange={(event) => onChange(event.target.value)} className={`${error ? invalidInputClass : inputClass} min-h-28`} aria-invalid={Boolean(error)} required={required} aria-describedby={error ? errorId : undefined} /> : <input id={fieldId} type={type} value={value} onChange={(event) => onChange(event.target.value)} className={error ? invalidInputClass : inputClass} aria-invalid={Boolean(error)} required={required} aria-describedby={error ? errorId : undefined} />}
       {error ? (
         <span id={errorId} className="mt-1 block text-xs text-[#B42318]">
           {error}

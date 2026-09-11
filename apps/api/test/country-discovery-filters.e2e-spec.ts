@@ -519,30 +519,42 @@ describe('public country discovery filters (e2e)', () => {
     );
   });
 
-  it('does not let an unverified stored statistic inflate the count', async () => {
-    await prisma.countryStatistic.create({
-      data: {
-        countryId: ids['other-region'],
-        sourceMode: 'MANUAL',
-        universitiesCount: 500,
-      },
-    });
-    // No sourceReference and no verifiedAt, so the live catalogue still speaks.
-    expect(await names('universitiesMin=1')).not.toContain(
-      `${tag}-other-region`,
-    );
-    await prisma.countryStatistic.update({
-      where: { countryId: ids['other-region'] },
-      data: {
-        sourceReference: 'https://discovery.example.invalid/stats',
-        verifiedAt: new Date('2026-01-02T00:00:00.000Z'),
-      },
-    });
-    // Verified and manual: now it is allowed to speak for the destination.
-    expect(await names('universitiesMin=100')).toEqual([`${tag}-other-region`]);
-    await prisma.countryStatistic.deleteMany({
-      where: { countryId: ids['other-region'] },
-    });
+  it('lets an authored statistic speak, and a DERIVED one stay quiet', async () => {
+    /* This used to also require a source reference and a verification date.
+     * The Country source-verification workflow has been withdrawn -- the editor
+     * has no control for either field -- so ownership is the whole test now,
+     * and the filter has to agree with the country page rather than quietly
+     * disagree with it.
+     *
+     * The cleanup is in a `finally` because this fixture is a 500-university
+     * country: leaking it turns every later count assertion in this file into a
+     * failure that has nothing to do with what it is testing. */
+    try {
+      await prisma.countryStatistic.create({
+        data: {
+          countryId: ids['other-region'],
+          sourceMode: 'DERIVED',
+          universitiesCount: 500,
+        },
+      });
+      // DERIVED means "keep following the catalogue", whatever the column says.
+      expect(await names('universitiesMin=1')).not.toContain(
+        `${tag}-other-region`,
+      );
+
+      await prisma.countryStatistic.update({
+        where: { countryId: ids['other-region'] },
+        data: { sourceMode: 'MANUAL' },
+      });
+      // Authored, with no citation anywhere: it speaks for the destination.
+      expect(await names('universitiesMin=100')).toEqual([
+        `${tag}-other-region`,
+      ]);
+    } finally {
+      await prisma.countryStatistic.deleteMany({
+        where: { countryId: ids['other-region'] },
+      });
+    }
   });
 
   it('combines four filter groups as an intersection', async () => {

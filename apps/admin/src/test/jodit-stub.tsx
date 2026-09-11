@@ -10,9 +10,13 @@ import type { RichTextEditorProps } from '@/features/shared/RichTextEditor';
  * exists, is a rich-text control, carries the stored value, and reports edits
  * back to the form.
  *
- * The stub therefore mirrors the contract, not the implementation: a labelled
- * editable region holding `value`, plus the variable and media controls the
- * wrapper adds beside the toolbar.
+ * The stub therefore mirrors the contract, not the implementation. The inline
+ * `%` autocomplete is deliberately not reproduced here: it reads a live caret
+ * out of a contenteditable, which is exactly the class of behaviour this stub
+ * exists to avoid faking. Its rules are unit-tested directly against
+ * `entity-autocomplete.ts`, and its wiring is covered by a browser test. What
+ * the stub does carry is the context the editor is handed, so a form can be
+ * asserted to have passed the right one.
  */
 export function JoditRichText({
   label,
@@ -20,36 +24,16 @@ export function JoditRichText({
   onChange,
   disabled = false,
   readOnly = false,
-  allowedVariables = [],
   enableImages = true,
   media = [],
   ariaLabel,
   hideLabel = false,
+  entityContext,
 }: RichTextEditorProps) {
   const isDisabled = disabled || readOnly;
   return (
     <div className="text-sm font-semibold">
       {hideLabel ? null : <span className="mb-2 block">{label}</span>}
-      {allowedVariables.length ? (
-        <label className="text-xs font-semibold">
-          Insert variable
-          <select
-            aria-label={`Insert variable into ${label}`}
-            disabled={isDisabled}
-            value=""
-            onChange={(event) =>
-              event.target.value && onChange(`${value ?? ''}{${event.target.value}}`)
-            }
-          >
-            <option value="">Choose…</option>
-            {allowedVariables.map((item) => (
-              <option key={item.key} value={item.key}>
-                {item.label}
-              </option>
-            ))}
-          </select>
-        </label>
-      ) : null}
       {enableImages && media.length ? (
         <button
           type="button"
@@ -68,6 +52,8 @@ export function JoditRichText({
         contentEditable={!isDisabled}
         suppressContentEditableWarning
         data-rte-value={value ?? ''}
+        data-rte-country={entityContext?.countryId ?? ''}
+        data-rte-variable-context={entityContext?.variableContext ?? ''}
         dangerouslySetInnerHTML={{ __html: value ?? '' }}
         onInput={(event) => onChange((event.target as HTMLElement).innerHTML)}
       />

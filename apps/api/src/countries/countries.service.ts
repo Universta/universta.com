@@ -320,20 +320,24 @@ function notFound(): NotFoundException {
 /**
  * Whether a stored statistics row is allowed to speak for the country.
  *
- * Two conditions, both required. `sourceMode` says an editor deliberately took
- * ownership of the number -- DERIVED means "keep following the catalogue", and
- * a row left on DERIVED must never override the live count even if it still
- * carries verification from an earlier manual period. The source reference and
- * verification date then say the number was actually checked. Without both
- * halves the caller falls back to `CountryDerivedService`, so a stale figure
- * can never quietly contradict the published universities it claims to count.
+ * `sourceMode` is the whole test: it says an editor deliberately took ownership
+ * of the number, and DERIVED means "keep following the catalogue", so a row
+ * left on DERIVED never overrides the live count. Anything else is an authored
+ * figure and is published as written.
+ *
+ * This used to also require a source reference and a verification date. That
+ * was the last surviving half of the Country source-verification workflow,
+ * which has been withdrawn: the editor no longer asks for either field, so the
+ * condition could not be met by any number an author types today -- it would
+ * have accepted the edit, stored it, and then quietly shown the derived count
+ * instead. Both columns remain and are still stored when an importer supplies
+ * them; they are simply not a gate.
  */
-function isVerifiedStatistics(
+function isAuthoredStatistics(
   statistics: CountryRecord['statistics'],
 ): boolean {
   if (!statistics) return false;
-  if (statistics.sourceMode === 'DERIVED') return false;
-  return Boolean(statistics.verifiedAt && statistics.sourceReference);
+  return statistics.sourceMode !== 'DERIVED';
 }
 
 @Injectable()
@@ -556,7 +560,7 @@ export class CountriesService {
         slug: record.slug,
         flag: this.flag(record),
         continent: this.continent(record),
-        universitiesCount: isVerifiedStatistics(record.statistics)
+        universitiesCount: isAuthoredStatistics(record.statistics)
           ? (record.statistics?.universitiesCount ?? null)
           : null,
         profiles: publicProfileSummary(record),
@@ -582,13 +586,13 @@ export class CountriesService {
     return {
       data: countries.map((country) => {
         const record = country as unknown as CountryRecord;
-        const verified = isVerifiedStatistics(record.statistics);
+        const authored = isAuthoredStatistics(record.statistics);
         return {
           name: record.name,
           slug: record.slug,
           flag: this.flag(record),
           shortDescription: record.shortDescription,
-          programCounts: verified
+          programCounts: authored
             ? {
                 ug: record.statistics?.ugCoursesCount ?? null,
                 pg: record.statistics?.pgCoursesCount ?? null,
@@ -1090,7 +1094,7 @@ export class CountriesService {
 
   /**
    * Country ids whose resolved university count reaches `minimum`, following
-   * the same rule the page itself publishes: a verified non-DERIVED statistic
+   * the same rule the page itself publishes: an authored non-DERIVED statistic
    * speaks for the destination, otherwise the live published catalogue does.
    * One grouped query, so this never scales with the number of results.
    */
@@ -1106,8 +1110,6 @@ export class CountriesService {
              CASE
                WHEN s.source_mode IS NOT NULL
                 AND s.source_mode <> 'DERIVED'
-                AND s.source_reference IS NOT NULL
-                AND s.verified_at IS NOT NULL
                 AND s.universities_count IS NOT NULL
                THEN s.universities_count
                ELSE COALESCE(u.n, 0)
@@ -1140,8 +1142,6 @@ export class CountriesService {
         AND CASE
               WHEN s.source_mode IS NOT NULL
                AND s.source_mode <> 'DERIVED'
-               AND s.source_reference IS NOT NULL
-               AND s.verified_at IS NOT NULL
                AND s.universities_count IS NOT NULL
               THEN s.universities_count
               ELSE COALESCE(u.n, 0)
@@ -1154,33 +1154,21 @@ export class CountriesService {
     /* Predicates on the same to-one relation are collected and ANDed rather
      * than merged into one object: a single object loses a repeated key, and
      * -- worse -- makes every filter inherit its neighbours' requirements, so
-     * asking for a currency started demanding a verified source purely because
-     * some other filter on the same request needed one.
+     * asking for a currency started demanding a source purely because some
+     * other filter on the same request needed one.
      *
-     * Verification is therefore per field, not per relation:
-     *
-     *   requires a verified source -- an editorial rating someone would act on
-     *     budgetBand, visaSuccessBand, immigrationPathwayStrength
-     *   evaluated on the stored data itself -- a plain recorded fact
-     *     currencyCode, tuitionMin, livingCostMin, applicationFeeMin,
-     *     postStudyWorkAvailable/MaxMonths, partTimeAllowed/HoursPerWeek
-     *
-     * This mirrors what universitiesAtLeast() above already does for the
-     * university count: an unverified figure falls back to the real catalogue
-     * instead of removing the destination from the answer entirely. */
-    const work: Prisma.CountryWorkProfileWhereInput[] = [];
-    const cost: Prisma.CountryCostProfileWhereInput[] = [];
-    /* Verification is no longer what decides whether a value counts. A band an
-     * author published is filterable on, cited or not -- leaving the gate here
+     * Every filter is now evaluated on the stored value itself. A band an
+     * author published is filterable on, cited or not -- the source and
+     * verification columns are no longer a gate anywhere, and leaving one here
      * would have published a "Budget friendly" badge that the Budget filter
      * then refused to match. */
-    const verified = {};
+    const work: Prisma.CountryWorkProfileWhereInput[] = [];
+    const cost: Prisma.CountryCostProfileWhereInput[] = [];
 
     if (query.visaSuccessBand)
-      work.push({ ...verified, visaSuccessBand: query.visaSuccessBand });
+      work.push({ visaSuccessBand: query.visaSuccessBand });
     if (query.pathwayStrength)
       work.push({
-        ...verified,
         immigrationPathwayStrength: query.pathwayStrength,
       });
     if (query.postStudyWork !== undefined)
@@ -1201,8 +1189,7 @@ export class CountriesService {
         partTimeHoursPerWeek: { not: null, gte: query.workHoursMin },
       });
 
-    if (query.budgetBand)
-      cost.push({ ...verified, budgetBand: query.budgetBand });
+    if (query.budgetBand) cost.push({ budgetBand: query.budgetBand });
     /* Money bounds only ever apply inside one currency. Destinations publish in
      * their own currency and there is no conversion layer, so comparing 20,000
      * SEK with 20,000 SGD would be meaningless; without `currency` the amount
@@ -1299,7 +1286,6 @@ export class CountriesService {
         ? {
             languageRequirements: {
               is: {
-                ...verified,
                 ...(query.ieltsOptional
                   ? {
                       OR: [
@@ -1325,7 +1311,6 @@ export class CountriesService {
         ? {
             statistics: {
               is: {
-                ...verified,
                 topRankedUniversitiesCount: query.hasTopRankedUniversities
                   ? { gt: 0 }
                   : 0,
@@ -1645,7 +1630,7 @@ export class CountriesService {
     record: CountryRecord,
     taxonomy: TaxonomySnapshot,
   ): CountryPublicDto {
-    const verified = isVerifiedStatistics(record.statistics);
+    const authored = isAuthoredStatistics(record.statistics);
     return {
       id: record.id,
       name: record.name,
@@ -1664,7 +1649,7 @@ export class CountriesService {
       displayOrder: record.displayOrder,
       statistics: record.statistics
         ? {
-            universitiesCount: verified
+            universitiesCount: authored
               ? record.statistics.universitiesCount
               : null,
           }

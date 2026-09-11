@@ -59,6 +59,110 @@ const ENTITY_CONFIG: Record<EntityType, EntityConfig> = {
 };
 const ENTITY_TYPES = Object.keys(ENTITY_CONFIG) as EntityType[];
 
+/**
+ * What the rich-text editor's `%` autocomplete can offer.
+ *
+ * Deliberately a wider set than ENTITY_CONFIG above, and a separate one. The
+ * link picker may only offer records that have a canonical public page to point
+ * at; the editor also names things that do not -- a continent, a specialization
+ * -- and inserts those as plain text. Folding them into ENTITY_CONFIG would
+ * have put unlinkable records into the link picker.
+ *
+ * `path` is null wherever no public route exists for that entity on its own.
+ * Every non-null prefix below corresponds to a real route under apps/web.
+ */
+type SuggestKind =
+  | 'country'
+  | 'continent'
+  | 'city'
+  | 'university'
+  | 'subject'
+  | 'specialization'
+  | 'course'
+  | 'scholarship'
+  | 'consultant';
+
+interface SuggestConfig {
+  /** The Prisma delegate name. */
+  model: string;
+  titleField: 'name' | 'title';
+  /** Public route prefix, or null when the entity has no page of its own. */
+  prefix: string | null;
+  /** Human label for the result's second line. */
+  noun: string;
+  /** Whether the row carries a countryId that context ranking can use. */
+  countryScoped?: boolean;
+}
+
+const SUGGEST_CONFIG: Record<SuggestKind, SuggestConfig> = {
+  country: {
+    model: 'country',
+    titleField: 'name',
+    prefix: '/countries',
+    noun: 'Country',
+  },
+  continent: {
+    model: 'continent',
+    titleField: 'name',
+    prefix: null,
+    noun: 'Continent',
+  },
+  city: {
+    model: 'city',
+    titleField: 'name',
+    prefix: null,
+    noun: 'City',
+    countryScoped: true,
+  },
+  university: {
+    model: 'university',
+    titleField: 'name',
+    prefix: '/universities',
+    noun: 'University',
+    countryScoped: true,
+  },
+  subject: {
+    model: 'subject',
+    titleField: 'name',
+    prefix: '/subjects',
+    noun: 'Subject',
+  },
+  specialization: {
+    model: 'subSubject',
+    titleField: 'name',
+    prefix: null,
+    noun: 'Specialization',
+  },
+  course: {
+    model: 'course',
+    titleField: 'name',
+    prefix: '/courses',
+    noun: 'Course',
+  },
+  scholarship: {
+    model: 'scholarship',
+    titleField: 'title',
+    prefix: '/scholarships',
+    noun: 'Scholarship',
+  },
+  consultant: {
+    model: 'consultant',
+    titleField: 'name',
+    prefix: '/study-abroad-consultants',
+    noun: 'Consultant',
+  },
+};
+const SUGGEST_KINDS = Object.keys(SUGGEST_CONFIG) as SuggestKind[];
+
+export interface EditorEntitySuggestion {
+  kind: SuggestKind;
+  id: string;
+  label: string;
+  path: string | null;
+  detail: string;
+  related: boolean;
+}
+
 export interface InternalLinkCandidate {
   entityType: EntityType;
   entityId: string;
@@ -86,6 +190,102 @@ function isEntityType(value: string): value is EntityType {
 @Injectable()
 export class InternalLinksService {
   constructor(private readonly prisma: PrismaService) {}
+
+  /**
+   * Records the rich-text editor's `%` autocomplete can name.
+   *
+   * `countryId` is the record being edited, not a filter: everything still
+   * comes back, but rows belonging to that country are flagged so the editor
+   * can rank them above unrelated global results. An author writing about
+   * India who types `%ii` wants the two Indian institutes first, not an
+   * alphabetical sweep of every university in the catalogue.
+   *
+   * Cities are the one entity whose public path needs a second value -- the
+   * route is /study-in/<country>/<city> -- so their country slug is selected
+   * alongside and the path is built only when it is there.
+   */
+  async editorEntities(
+    q: string,
+    countryId?: string,
+  ): Promise<EditorEntitySuggestion[]> {
+    const query = (q ?? '').trim();
+    const results = await Promise.all(
+      SUGGEST_KINDS.map((kind) => this.suggestOne(kind, query, countryId)),
+    );
+    /* Interleaved rather than concatenated, so a short list does not push a
+     * long one off the end: the editor ranks what it is given, and it should be
+     * given a spread of kinds to rank. */
+    const byKind = results.filter((rows) => rows.length);
+    const merged: EditorEntitySuggestion[] = [];
+    for (let index = 0; merged.length < 40; index += 1) {
+      const row = byKind
+        .filter((rows) => rows[index])
+        .map((rows) => rows[index]);
+      if (!row.length) break;
+      merged.push(...row);
+    }
+    return merged.slice(0, 40);
+  }
+
+  private async suggestOne(
+    kind: SuggestKind,
+    q: string,
+    countryId?: string,
+  ): Promise<EditorEntitySuggestion[]> {
+    const config = SUGGEST_CONFIG[kind];
+    // Prisma's generated delegates are selected by a key of SUGGEST_CONFIG,
+    // never by anything a caller supplies.
+
+    const delegate = (this.prisma as any)[config.model];
+    if (!delegate) return [];
+    const rows = await delegate.findMany({
+      where: {
+        deletedAt: null,
+        ...(q
+          ? {
+              OR: [
+                { [config.titleField]: { contains: q } },
+                { slug: { contains: q } },
+              ],
+            }
+          : {}),
+      },
+      select: {
+        id: true,
+        slug: true,
+        [config.titleField]: true,
+        ...(config.countryScoped ? { countryId: true } : {}),
+        ...(kind === 'city' ? { country: { select: { slug: true } } } : {}),
+      },
+      orderBy: { [config.titleField]: 'asc' },
+      take: 8,
+    });
+    return rows.map((row: Record<string, any>) => ({
+      kind,
+      id: String(row.id),
+      label: String(row[config.titleField]),
+      path: this.suggestPath(kind, config, row),
+      detail: config.noun,
+      related: Boolean(
+        countryId &&
+        (config.countryScoped
+          ? row.countryId === countryId
+          : kind === 'country' && row.id === countryId),
+      ),
+    }));
+  }
+
+  private suggestPath(
+    kind: SuggestKind,
+    config: SuggestConfig,
+    row: Record<string, any>,
+  ): string | null {
+    if (kind === 'city') {
+      const country = row.country?.slug;
+      return country ? `/study-in/${country}/${String(row.slug)}` : null;
+    }
+    return config.prefix ? `${config.prefix}/${String(row.slug)}` : null;
+  }
 
   /** Admin search: visible regardless of publish status, so an editor can
    * link to (and see the warning for) a not-yet-published record. */

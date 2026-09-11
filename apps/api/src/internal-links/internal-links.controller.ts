@@ -24,6 +24,21 @@ export class InternalLinksAdminController {
     return successEnvelope(req, await this.service.search(q ?? '', entityType));
   }
 
+  /** Feeds the rich-text editor's inline `%` autocomplete. Separate from
+   * `search` above because it covers entities that have no public page of
+   * their own -- a continent, a specialization -- which the link picker must
+   * never offer. `countryId` ranks rather than filters. */
+  @Get('entities') async entities(
+    @Req() req: AuthenticatedRequest,
+    @Query('q') q?: string,
+    @Query('countryId') countryId?: string,
+  ) {
+    return successEnvelope(
+      req,
+      await this.service.editorEntities(q ?? '', countryId),
+    );
+  }
+
   @Get('resolve') async resolve(
     @Req() req: AuthenticatedRequest,
     @Query('entityType') entityType: string,
