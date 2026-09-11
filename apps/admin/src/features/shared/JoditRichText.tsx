@@ -349,7 +349,16 @@ export function JoditRichText({
   useEffect(() => {
     const area = editorRef.current?.editor;
     if (!ready || !area) return;
-    const onCaretMove = () => window.setTimeout(syncTrigger, 0);
+    const menuNavigationKeys = new Set(['ArrowDown', 'ArrowUp', 'Enter', 'Tab', 'Escape']);
+    const onKeyUp = (event: KeyboardEvent) => {
+      /* A menu-navigation key is handled synchronously below. Re-scanning its
+       * keyup is both unnecessary and harmful: Jodit has already observed the
+       * event by then and may have moved its internal selection, which made a
+       * just-highlighted option snap back to the first result. */
+      if (menuOpen && menuNavigationKeys.has(event.key)) return;
+      window.setTimeout(syncTrigger, 0);
+    };
+    const onMouseUp = () => window.setTimeout(syncTrigger, 0);
     const onBlur = () => {
       /* Left open, a menu would hang over the next field. The mousedown that
        * picks a suggestion runs before this, so a click still lands. */
@@ -359,15 +368,15 @@ export function JoditRichText({
         setAnchor(null);
       }, 120);
     };
-    area.addEventListener('keyup', onCaretMove);
-    area.addEventListener('mouseup', onCaretMove);
+    area.addEventListener('keyup', onKeyUp);
+    area.addEventListener('mouseup', onMouseUp);
     area.addEventListener('blur', onBlur);
     return () => {
-      area.removeEventListener('keyup', onCaretMove);
-      area.removeEventListener('mouseup', onCaretMove);
+      area.removeEventListener('keyup', onKeyUp);
+      area.removeEventListener('mouseup', onMouseUp);
       area.removeEventListener('blur', onBlur);
     };
-  }, [closeMenu, ready, syncTrigger]);
+  }, [closeMenu, menuOpen, ready, syncTrigger]);
 
   /* The menu's own keys, intercepted through Jodit's event manager with top
    * priority. Jodit registers its own target-level key handlers through that
