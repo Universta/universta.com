@@ -187,6 +187,50 @@ test.describe.serial('rich-text inline entity autocomplete', () => {
     }
   });
 
+  test('a menu opening under a resting pointer still starts on the first option', async ({
+    page,
+  }) => {
+    await loginAsAdmin(page);
+    await page.goto('/countries/new');
+
+    const box = field(page, 'Overview');
+    await expect(box).toBeVisible({ timeout: 30_000 });
+    await box.click();
+    await page.keyboard.type('Partnered with %a');
+    await expect(menu(page)).toBeVisible({ timeout: 15_000 });
+    const options = menu(page).getByRole('option');
+    await expect(async () => {
+      const count = await options.count();
+      expect(count).toBeGreaterThan(1);
+      await page.waitForTimeout(250);
+      expect(await options.count()).toBe(count);
+    }).toPass({ timeout: 15_000 });
+
+    /* Where the second option sits. The menu is closed again before the
+     * pointer is parked there, so nothing is under the cursor when it moves. */
+    const target = await options.nth(1).boundingBox();
+    expect(target).not.toBeNull();
+    await page.keyboard.press('Escape');
+    await expect(menu(page)).toHaveCount(0);
+    await page.keyboard.press('Backspace');
+    await page.mouse.move(target!.x + target!.width / 2, target!.y + target!.height / 2);
+
+    /* Retyping the token reopens the same list in the same place -- directly
+     * beneath a pointer that has not moved since. A hand resting on the mouse
+     * is not a choice of option, so the keyboard highlight has to start where
+     * the keyboard put it, on the first result. */
+    await page.keyboard.type('a');
+    await expect(menu(page)).toBeVisible({ timeout: 15_000 });
+    await expect(async () => {
+      expect(await options.count()).toBeGreaterThan(1);
+    }).toPass({ timeout: 15_000 });
+    await expect(options.first()).toHaveAttribute('aria-selected', 'true');
+
+    /* Moving the mouse is a choice, and still highlights what it lands on. */
+    await page.mouse.move(target!.x + target!.width / 2, target!.y + target!.height / 2 + 1);
+    await expect(options.nth(1)).toHaveAttribute('aria-selected', 'true');
+  });
+
   test('survives a save and a reload with the link intact', async ({ page }) => {
     await loginAsAdmin(page);
     await page.goto('/countries/new');

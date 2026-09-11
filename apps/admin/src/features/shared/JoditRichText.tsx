@@ -455,7 +455,14 @@ export function JoditRichText({
                     event.preventDefault();
                     applySuggestion(suggestion);
                   }}
-                  onMouseEnter={() => autocomplete.setActive(index)}
+                  /* mousemove, not mouseenter. The menu opens under wherever
+                   * the pointer already was, and `mouseenter` fires when an
+                   * element appears beneath a cursor that never moved -- so the
+                   * highlight jumped off the first result the moment the list
+                   * rendered, and the arrow keys then counted from somewhere
+                   * the author never chose. A hand resting on the mouse is not
+                   * a choice; moving it is, and only that moves the highlight. */
+                  onMouseMove={() => autocomplete.setActive(index)}
                   className={`block w-full px-3 py-2 text-left text-sm font-normal ${
                     index === autocomplete.active ? 'bg-[#EEF3FF]' : 'bg-white'
                   }`}
