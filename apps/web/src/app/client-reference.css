@@ -5253,3 +5253,380 @@
   margin-top: 26px;
   text-align: center;
 }
+
+/* Listing card descriptions.
+   The stored short description is several paragraphs of authored copy, so the
+   card shows a few lines of it and offers to show the rest in place. The clamp
+   is line-based rather than a character count so it holds at every card width.
+   `--desc-lines` is set by the component. */
+.cref-dest .disclosure {
+  flex: 1;
+  margin-bottom: 20px;
+  min-width: 0;
+}
+.cref-dest .disclosure-body {
+  font-size: 15px;
+  color: var(--ink-2);
+  margin: 0;
+  /* Long unbroken strings in authored copy must not push the grid wider. */
+  overflow-wrap: anywhere;
+}
+/* Secondary by design: this sits under a description and above the card's own
+   link, and must not compete with it. */
+.cref-dest .az-tile .disclosure-text {
+  font-size: 14.5px;
+}
+.cref-dest .az-tile .disclosure {
+  margin-bottom: 16px;
+}
+
+/* A derived flag emoji standing in for an uploaded image.
+   The slot is sized and centred for two capital letters in the display face, so
+   an emoji dropped into it inherits that weight and sits on the text baseline.
+   It gets its own size, a font stack that actually carries flag glyphs, and
+   normal weight, and the tile's own `place-items: center` does the centring. */
+.cref-dest .flag-emoji {
+  font-family:
+    'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji',
+    'Twemoji Mozilla', sans-serif;
+  font-weight: 400;
+  font-size: 1.5em;
+  line-height: 1;
+  /* Colour emoji ignore `color`, but the inherited ink would otherwise show
+     through on any platform that falls back to a monochrome glyph. */
+  color: initial;
+}
+
+/* ==========================================================================
+   Country detail — one section grid, one card system
+   ==========================================================================
+   Sections used to disagree about where the page begins. `.wrap` centres a
+   1220px container, and `.narrow` reduced that container to 900px while
+   keeping it centred, so a narrow section's heading started ~160px further in
+   than the section above it. Every section now shares the outer container and
+   a narrow one constrains its own reading column instead, which keeps the
+   reading width without moving the left edge. */
+.cref-dest .wrap.narrow {
+  max-width: 1220px;
+}
+.cref-dest .wrap.narrow > * {
+  max-width: 860px;
+}
+
+/* Section rhythm. One scale, so the gap between a heading and its content is
+   the same everywhere and sections are separated by the same distance. */
+.cref-dest .head {
+  margin-bottom: 28px;
+}
+.cref-dest .head .eyebrow + h2 {
+  margin-top: 8px;
+}
+.cref-dest .head h2 + p {
+  margin-top: 10px;
+}
+
+/* The shared card grid.
+   Cards fill the row and wrap, and the column count is capped at four on the
+   widest screens so a five-card section becomes 4 + 1 rather than five thin
+   slivers. `data-count` lets a section with fewer cards spread them instead of
+   leaving a ragged gap. Rows stretch, so every card in a row is the height of
+   the tallest — which is what keeps a collapsed grid aligned. */
+.cref-dest .cdx-grid {
+  display: grid;
+  gap: 18px;
+  align-items: stretch;
+  grid-auto-rows: 1fr;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 250px), 1fr));
+}
+@media (min-width: 1024px) {
+  .cref-dest .cdx-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+  .cref-dest .cdx-grid[data-count="1"] {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .cref-dest .cdx-grid[data-count="2"] {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .cref-dest .cdx-grid[data-count="3"] {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+@media (min-width: 640px) and (max-width: 1023px) {
+  .cref-dest .cdx-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* A card in that grid. Full height so siblings match, and a column so the
+   description can take the slack and any footer stays on the bottom edge. */
+.cref-dest .cdx-card {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  padding: 20px;
+  min-width: 0;
+}
+.cref-dest .cdx-card > h3 {
+  font-size: 16.5px;
+  margin: 0 0 8px;
+  overflow-wrap: anywhere;
+}
+.cref-dest .cdx-card .disclosure {
+  margin-bottom: 0;
+  min-width: 0;
+}
+.cref-dest .cdx-card .disclosure-text {
+  font-size: 14.5px;
+}
+/* A small state chip on a card: Required, Optional, a test requirement. */
+.cref-dest .cdx-chip {
+  align-self: flex-start;
+  display: inline-block;
+  margin-bottom: 10px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  background: var(--soft);
+  color: var(--ink-2);
+}
+.cref-dest .cdx-chip.is-required {
+  background: var(--blue-50);
+  color: var(--blue);
+}
+
+/* Compact chips for a list of short facts -- intake months, accepted tests.
+   These were rendering as full-width rows, which turned four month names into
+   four oversized bars. */
+.cref-dest .cdx-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.cref-dest .cdx-chips li {
+  list-style: none;
+  padding: 10px 16px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #fff;
+  font-weight: 700;
+  font-size: 14.5px;
+  color: var(--ink);
+}
+
+/* A horizontal journey rail on desktop, a vertical list below it. The steps
+   read left to right and wrap onto a second row rather than scrolling. */
+.cref-dest .cdx-rail {
+  display: grid;
+  gap: 18px;
+  grid-auto-rows: 1fr;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 230px), 1fr));
+  counter-reset: railstep;
+}
+@media (min-width: 1024px) {
+  .cref-dest .cdx-rail {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+@media (min-width: 640px) and (max-width: 1023px) {
+  .cref-dest .cdx-rail {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+.cref-dest .cdx-step {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: #fff;
+  position: relative;
+  min-width: 0;
+}
+.cref-dest .cdx-step .s-no {
+  margin-bottom: 12px;
+}
+.cref-dest .cdx-step h3 {
+  font-size: 16px;
+  margin: 0 0 8px;
+}
+/* The connector between steps on a row. Hidden on the last column and on
+   narrow screens, where the rail stacks. */
+@media (min-width: 1024px) {
+  .cref-dest .cdx-step::after {
+    content: "";
+    position: absolute;
+    top: 38px;
+    right: -13px;
+    width: 8px;
+    height: 8px;
+    border-top: 2px solid var(--line-2);
+    border-right: 2px solid var(--line-2);
+    transform: rotate(45deg);
+  }
+  .cref-dest .cdx-step:nth-child(4n)::after,
+  .cref-dest .cdx-step:last-child::after {
+    display: none;
+  }
+}
+
+/* A single highlighted note -- the English-test waiver, for instance. */
+.cref-dest .cdx-callout {
+  margin-top: 18px;
+  padding: 18px 20px;
+  border: 1px solid var(--blue-100, var(--line));
+  border-left: 3px solid var(--blue);
+  border-radius: var(--r-sm);
+  background: var(--blue-50);
+}
+.cref-dest .cdx-callout h3 {
+  font-size: 15.5px;
+  margin: 0 0 6px;
+}
+.cref-dest .cdx-callout .disclosure-text {
+  font-size: 14.5px;
+}
+
+/* The jump nav grew with the page. It scrolls rather than wrapping into a
+   three-line block that pushes the hero down. */
+.cref-dest .jump .jump-in,
+.cref .jump .jump-in {
+  overflow-x: auto;
+  scrollbar-width: thin;
+  -webkit-overflow-scrolling: touch;
+}
+.cref-dest .jump a {
+  white-space: nowrap;
+}
+
+/* The one disclosure.
+   `is-collapsed` constrains; `has-more` is added only once the browser has
+   confirmed something is actually hidden, and it is what carries the fade. A
+   block that fits is therefore never faded and never offers a control -- the
+   combination that made copy look clipped with no way to read the rest. */
+.cref-dest .disclosure-body.disclosure-rich.is-collapsed,
+.cref .disclosure-body.disclosure-rich.is-collapsed {
+  overflow: hidden;
+}
+.cref-dest .disclosure-body.disclosure-rich.has-more,
+.cref .disclosure-body.disclosure-rich.has-more {
+  -webkit-mask-image: linear-gradient(to bottom, #000 64%, transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 64%, transparent 100%);
+}
+.cref-dest .disclosure-body.disclosure-text.is-collapsed,
+.cref .disclosure-body.disclosure-text.is-collapsed {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: var(--desc-lines, 5);
+  line-clamp: var(--desc-lines, 5);
+  overflow: hidden;
+}
+.cref-dest .disclosure-body,
+.cref .disclosure-body {
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.cref-dest .disclosure-text,
+.cref .disclosure-text {
+  font-size: 15px;
+  color: var(--ink-2);
+  margin: 0;
+}
+
+/* One control: same size, weight, colour and spacing everywhere it appears. */
+.cref-dest .disclosure-toggle,
+.cref .disclosure-toggle {
+  margin-top: 10px;
+  padding: 0;
+  background: none;
+  border: 0;
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--blue);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.cref-dest .disclosure-toggle:hover,
+.cref .disclosure-toggle:hover {
+  color: var(--ink);
+}
+.cref-dest .disclosure-toggle:focus-visible,
+.cref .disclosure-toggle:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 3px;
+  border-radius: 3px;
+}
+
+/* A guidance card in the shared grid: the call to action sits on the bottom
+   edge whatever the copy above it does, so a row of cards ends level. */
+.cref-dest .cdx-card.cons .view {
+  margin-top: auto;
+  padding-top: 14px;
+}
+.cref-dest .cdx-card.cons .free-badge {
+  align-self: flex-start;
+  margin-top: 12px;
+}
+.cref-dest .cdx-card .stat {
+  margin-top: auto;
+  padding-top: 12px;
+}
+
+/* The FAQ accordion is centred at 820px by the shared stylesheet, inside a
+   1220px section whose heading starts at the left edge -- so the questions
+   began about 200px to the right of the heading that introduced them. On the
+   country page it keeps the reading width and starts where its heading does. */
+.cref-dest .faq {
+  margin-left: 0;
+  margin-right: 0;
+  max-width: 860px;
+}
+
+/* The cost and visa fact tables read as data rather than as an admin grid:
+   a defined shell, rows of even height, and a label column that does not
+   collapse against its value on a narrow screen. */
+.cref-dest .cost-table {
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  overflow: hidden;
+  background: #fff;
+}
+.cref-dest .cost-table .ct-row {
+  min-height: 52px;
+  align-items: center;
+  padding: 12px 18px;
+  gap: 16px;
+}
+.cref-dest .cost-table .ct-row + .ct-row {
+  border-top: 1px solid var(--line);
+}
+.cref-dest .cost-table .ct-row.h {
+  background: var(--soft);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+  min-height: 42px;
+}
+.cref-dest .cost-table .ct-row b {
+  font-size: 15.5px;
+}
+@media (max-width: 640px) {
+  .cref-dest .cost-table .ct-row {
+    grid-template-columns: 1fr auto !important;
+    row-gap: 4px;
+  }
+  .cref-dest .cost-table .ct-row .note {
+    grid-column: 1 / -1;
+  }
+}

@@ -629,3 +629,24 @@ const byName = new Map(
 export function resolveCountryMetadata(name: string): CountryMetadata | null {
   return byName.get(normalizeCountryName(name)) ?? null;
 }
+
+/**
+ * The flag emoji for an ISO 3166-1 alpha-2 code.
+ *
+ * A country's flag is derived rather than uploaded: the two regional indicator
+ * symbols for its ISO letters are its flag, so `IN` is the Indian flag with
+ * nothing to store and nothing to keep in sync. The Admin editor has shown the
+ * flag this way since the upload control was withdrawn; this is the same
+ * derivation, served to the public clients so they do not each reimplement it
+ * and drift.
+ *
+ * An empty string for anything that is not two letters, so a country with no
+ * ISO code falls back to whatever the caller shows in place of a flag.
+ */
+export function flagEmojiFromIso(iso2: string | null | undefined): string {
+  const code = iso2?.trim().toUpperCase() ?? '';
+  if (!/^[A-Z]{2}$/.test(code)) return '';
+  return String.fromCodePoint(
+    ...[...code].map((letter) => 0x1f1e6 + letter.charCodeAt(0) - 65),
+  );
+}

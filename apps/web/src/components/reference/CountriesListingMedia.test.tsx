@@ -84,7 +84,7 @@ describe('countries listing media', () => {
     const html = render(
       build([
         country({
-          listingImage: { url: '/api/v1/media/listing.png', alt: 'Sydney skyline' },
+          listingImage: { url: '/api/v1/media/listing.png', alt: 'Sydney skyline', emoji: null },
         }),
       ]),
     );
@@ -95,7 +95,7 @@ describe('countries listing media', () => {
 
   it('falls back to the country name when the image carries no alt text', () => {
     const html = render(
-      build([country({ listingImage: { url: '/api/v1/media/listing.png', alt: '' } })]),
+      build([country({ listingImage: { url: '/api/v1/media/listing.png', alt: '', emoji: null } })]),
     );
     expect(html).toContain('alt="Australia"');
   });

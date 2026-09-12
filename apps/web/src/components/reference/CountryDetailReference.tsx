@@ -7,6 +7,8 @@ const monthName = (value: number) =>
   monthFormat.format(new Date(2020, value - 1, 1));
 import { formatDate, formatNumber } from "@/lib/format";
 import { RichText, richTextToPlainText } from "../phase1/RichText";
+import { CountryFlagMark } from "./CountryFlagMark";
+import { Disclosure } from "./Disclosure";
 
 /** The client-approved destination detail page.
  *
@@ -159,6 +161,11 @@ export function CountryDetailReference(props: CountryDetailReferenceProps) {
     (a, b) => a - b,
   );
   const documents = country.documents ?? [];
+  /* The tests the editor ticked. Labels come from the taxonomy the API
+   * resolves, so this prints "IELTS · TOEFL" rather than the stored codes. */
+  const acceptedTests = (country.configuration?.acceptedTests ?? [])
+    .map((test) => test.label || test.code)
+    .filter(Boolean);
   const profileTuition = range(cost?.tuitionMin, cost?.tuitionMax);
   const tuition =
     profileTuition ??
@@ -204,9 +211,27 @@ export function CountryDetailReference(props: CountryDetailReferenceProps) {
       ? humanise(work.immigrationPathwayStrength)
       : null;
 
-  /** Editorial "why" cards come from the profile's own published summaries, so
-   * the section carries the client's copy voice without inventing claims. */
+  /**
+   * Why a student would come here.
+   *
+   * These were built from whatever the profiles happened to carry, which put
+   * "3 intakes a year" and "English test waiver available" in a section headed
+   * "Why study in India" -- facts, but not reasons, and both are stated again
+   * in the panel and the English section that own them. Meanwhile the sixteen
+   * features the editor actually ticked for this country reached the payload
+   * and were rendered nowhere at all.
+   *
+   * So the features lead, because they are the authored answer to this exact
+   * question, and the profile summaries that genuinely read as reasons -- work
+   * rights, a residency pathway -- follow them with their own copy. Nothing
+   * about intakes or test scores: those are facts, and they have sections.
+   */
   const whyCards = [
+    ...(country.configuration?.features ?? []).map((feature) => ({
+      h: feature.label || feature.code,
+      p: "",
+      stat: "",
+    })),
     postStudyWork && {
       h: "Post-study work rights",
       p:
@@ -216,9 +241,7 @@ export function CountryDetailReference(props: CountryDetailReferenceProps) {
     },
     work?.partTimeAllowed && {
       h: "Work while you study",
-      p:
-        work.partTimeSummary ??
-        "Part-time work is permitted during your studies.",
+      p: work.partTimeSummary ?? "Part-time work is permitted during your studies.",
       stat: work.partTimeHoursPerWeek
         ? `${work.partTimeHoursPerWeek} hours a week`
         : "Permitted",
@@ -229,24 +252,6 @@ export function CountryDetailReference(props: CountryDetailReferenceProps) {
         work?.immigrationPathwaySummary ??
         "A published immigration pathway follows study in this destination.",
       stat: `${pathway} pathway`,
-    },
-    intakeLabels.length > 1 && {
-      h: `${intakeLabels.length} intakes a year`,
-      p: "More than one entry point a year means a missed deadline costs you months rather than a full year.",
-      stat: intakeLabels.join(" · "),
-    },
-    language?.languageWaiverAvailable && {
-      h: "English test waiver available",
-      p:
-        language.waiverNotes ??
-        language.generalNotes ??
-        "Some programmes waive the English test where your prior degree was taught in English.",
-      stat: ielts ? `IELTS ${ielts.toLowerCase()}` : "Waiver available",
-    },
-    derivedUniversityCount && {
-      h: "A catalogue you can browse",
-      p: "Every institution, course and scholarship on this page is a published record you can open and compare.",
-      stat: `${formatNumber(derivedUniversityCount)} universities${derivedCourseCount ? ` · ${formatNumber(derivedCourseCount)} courses` : ""}`,
     },
   ].filter(Boolean) as Array<{ h: string; p: string; stat: string }>;
 
@@ -365,18 +370,6 @@ export function CountryDetailReference(props: CountryDetailReferenceProps) {
     ],
   ].filter(Boolean) as Array<[string, string]>;
 
-  /* Country identity the client contract asks for. These are plain published
-   * attributes of the destination rather than verified statistics, so they are
-   * not behind the profile verification gate. */
-  const identityRows = [
-    country.capitalCity && ["Capital", country.capitalCity],
-    country.officialLanguage && ["Language", country.officialLanguage],
-    country.currency?.code && [
-      "Currency",
-      `${country.currency.code}${country.currency.symbol ? ` (${country.currency.symbol})` : ""}`,
-    ],
-  ].filter(Boolean) as Array<[string, string]>;
-
   /* The four long-form fields in the client contract map to stable section
    * keys. `overview` is rendered separately above, so it is excluded here to
    * avoid showing the same body twice. */
@@ -490,18 +483,80 @@ export function CountryDetailReference(props: CountryDetailReferenceProps) {
     ],
   ].filter(Boolean) as Array<[string, string]>;
 
-  /* Every row in this panel is optional. On a destination whose cost, work,
-   * language and intake profiles are all unpublished the aside still rendered
-   * as a titled card with nothing in it, so it is only mounted when it has at
-   * least one figure to show. */
-  const hasQuickFacts = Boolean(
-    tuition ||
-    living ||
-    postStudyWork ||
-    intakeLabels.length ||
-    ielts ||
-    pathway,
-  );
+  /**
+   * The at-a-glance panel.
+   *
+   * It used to read only the cost, work, language and intake profiles, so a
+   * destination that had not published those showed a card with two rows in it
+   * while the identity the editor had filled in -- capital, language, currency,
+   * the tests it accepts -- sat unused in the same payload.
+   *
+   * Every row is built from a value that is actually present, in priority
+   * order, and the list is then cut to what a summary card should hold. A row
+   * is never invented and never printed empty: a value that is absent produces
+   * no entry at all, which is what keeps this honest on a country at any stage
+   * of authoring.
+   *
+   * A false boolean is not an absent one. "Part-time work: Not permitted" is
+   * the answer a student needs, and hiding it would leave them to guess -- so
+   * the work rows test for a published profile, not for a truthy value. What
+   * they must never do is turn a false or missing value into a positive claim.
+   */
+  const workProfilePublished = Boolean(work);
+  const quickFacts = [
+    country.capitalCity && ["Capital", country.capitalCity],
+    country.officialLanguage && ["Language", country.officialLanguage],
+    country.currency?.code && [
+      "Currency",
+      country.currency.name
+        ? `${country.currency.name} (${country.currency.code})`
+        : `${country.currency.code}${country.currency.symbol ? ` (${country.currency.symbol})` : ""}`,
+    ],
+    intakeLabels.length && ["Intakes", intakeLabels.join(" · ")],
+    /* Only a published range, and labelled for what it is when the figure is
+     * the catalogue's average rather than the country's own. */
+    tuition && [
+      tuitionIsDerived ? "Average tuition" : "Tuition",
+      `${currency}${tuition}${cost?.tuitionPeriod === "PER_YEAR" ? "/yr" : ""}`,
+    ],
+    living && [
+      "Living cost",
+      `${currency}${living}${cost?.livingCostPeriod === "PER_MONTH" ? "/mo" : ""}`,
+    ],
+    ielts && ["IELTS", ielts],
+    workProfilePublished &&
+      typeof work?.partTimeAllowed === "boolean" && [
+        "Part-time work",
+        work.partTimeAllowed
+          ? work.partTimeHoursPerWeek
+            ? `${work.partTimeHoursPerWeek} hours a week`
+            : "Permitted"
+          : "Not permitted",
+      ],
+    workProfilePublished &&
+      typeof work?.postStudyWorkAvailable === "boolean" && [
+        "Post-study work",
+        work.postStudyWorkAvailable
+          ? (postStudyWork ?? "Available")
+          : "Not available",
+      ],
+    pathway && ["PR pathway", pathway],
+    /* Below the work rows on purpose: this largely restates the IELTS line
+     * above, so it earns a place only on a country with room to spare. */
+    acceptedTests.length && ["English tests", acceptedTests.join(" · ")],
+    statistics?.internationalStudentsCount && [
+      "International students",
+      formatNumber(statistics.internationalStudentsCount),
+    ],
+    derivedUniversityCount && [
+      "Universities",
+      formatNumber(derivedUniversityCount),
+    ],
+  ].filter(Boolean) as Array<[string, string]>;
+
+  /* A summary, not a table. What does not fit is on the page below in full. */
+  const shownQuickFacts = quickFacts.slice(0, 8);
+  const hasQuickFacts = shownQuickFacts.length > 0;
 
   /* The Country source-verification workflow has been withdrawn: the editor no
    * longer asks for a source reference or a verification date, so a "verified
@@ -550,7 +605,7 @@ export function CountryDetailReference(props: CountryDetailReferenceProps) {
       "Work and visa",
     ],
     cities.length && ["cities", "Cities"],
-    statRows.length && ["statistics", "At a glance"],
+    statRows.length && ["statistics", "By the numbers"],
     ...clientSections.map(
       (section) => [`country-${section.key}`, section.heading] as [string, string],
     ),
@@ -587,12 +642,7 @@ export function CountryDetailReference(props: CountryDetailReferenceProps) {
       >
         <div>
           <span className="h-flag" aria-hidden="true">
-            {country.flag?.url ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={country.flag.url} alt="" />
-            ) : (
-              initials(country.name)
-            )}
+            <CountryFlagMark flag={country.flag} name={country.name} />
           </span>
           {/* A country can be published before its heading is written; the
             * name is what the page is about either way. */}
@@ -609,7 +659,11 @@ export function CountryDetailReference(props: CountryDetailReferenceProps) {
           ) : null}
           {country.tagline ? <p className="eyebrow">{country.tagline}</p> : null}
           {country.shortDescription ? (
-            <RichText className="lede" value={country.shortDescription} />
+            <Disclosure
+              value={country.shortDescription}
+              collapsedHeight={150}
+              describes={`the introduction to ${country.name}`}
+            />
           ) : null}
           <div className="hero-btns">
             <Link href={counselling} className="btn btn-primary btn-lg">
@@ -629,50 +683,12 @@ export function CountryDetailReference(props: CountryDetailReferenceProps) {
           <aside className="quickfacts">
             <h2>{country.name} at a glance</h2>
             <p className="qf-note">Published figures</p>
-            {tuition ? (
-              <div className="qf-row">
-                <span>Tuition</span>
-                <b>
-                  {currency}
-                  {tuition}
-                  {cost?.tuitionPeriod === "PER_YEAR" ? "/yr" : ""}
-                </b>
+            {shownQuickFacts.map(([label, value]) => (
+              <div className="qf-row" key={label}>
+                <span>{label}</span>
+                <b>{value}</b>
               </div>
-            ) : null}
-            {living ? (
-              <div className="qf-row">
-                <span>Living cost</span>
-                <b>
-                  {currency}
-                  {living}
-                  {cost?.livingCostPeriod === "PER_MONTH" ? "/mo" : ""}
-                </b>
-              </div>
-            ) : null}
-            {postStudyWork ? (
-              <div className="qf-row">
-                <span>Post-study work</span>
-                <b>{postStudyWork}</b>
-              </div>
-            ) : null}
-            {intakeLabels.length ? (
-              <div className="qf-row">
-                <span>Intakes</span>
-                <b>{intakeLabels.join(" · ")}</b>
-              </div>
-            ) : null}
-            {ielts ? (
-              <div className="qf-row">
-                <span>IELTS</span>
-                <b>{ielts}</b>
-              </div>
-            ) : null}
-            {pathway ? (
-              <div className="qf-row">
-                <span>PR pathway</span>
-                <b>{pathway}</b>
-              </div>
-            ) : null}
+            ))}
           </aside>
         ) : null}
       </section>
@@ -690,9 +706,11 @@ export function CountryDetailReference(props: CountryDetailReferenceProps) {
                   `About studying in ${country.name}`}
               </h2>
             </div>
-            <div className="prose">
-              <RichText value={overviewBody} />
-            </div>
+            <Disclosure
+              value={overviewBody}
+              collapsedHeight={320}
+              describes={`the overview of ${country.name}`}
+            />
           </div>
         </section>
       ) : null}
@@ -705,16 +723,25 @@ export function CountryDetailReference(props: CountryDetailReferenceProps) {
               <span className="eyebrow">The case for {country.name}</span>
               <h2>Why study in {country.name}</h2>
               <p>
-                Each point below comes from {country.name}’s published profile,
-                not from editorial claims.
+                Every point below is something an editor recorded for{" "}
+                {country.name}, not an editorial claim.
               </p>
             </div>
-            <div className="why-grid">
+            <div className="cdx-grid" data-count={whyCards.length}>
               {whyCards.map((card) => (
-                <article className="whycard" key={card.h}>
+                <article className="cdx-card" key={card.h}>
                   <h3>{card.h}</h3>
-                  <RichText value={card.p} />
-                  <span className="stat">{card.stat}</span>
+                  {/* A feature is a label on its own; a profile summary brings
+                    * copy that can run long, so it collapses like every other
+                    * card on the page and the row stays level. */}
+                  {card.p ? (
+                    <Disclosure
+                      value={card.p}
+                      collapsedHeight={104}
+                      describes={card.h}
+                    />
+                  ) : null}
+                  {card.stat ? <span className="stat">{card.stat}</span> : null}
                 </article>
               ))}
             </div>
@@ -954,19 +981,29 @@ export function CountryDetailReference(props: CountryDetailReferenceProps) {
               <h2>Documents required to study in {country.name}</h2>
               <p>What to have ready before you apply.</p>
             </div>
-            <ul className="editorial-checklist">
+            {/* Fourteen documents, each with a few hundred words of guidance,
+              * were rendering as one continuous column of prose that had to be
+              * scrolled past to reach the rest of the page. A reader wants to
+              * see what is on the list first and read about one item second. */}
+            <div className="cdx-grid" data-count={documents.length}>
               {documents.map((doc) => (
-                <li key={doc.id}>
-                  <strong>
-                    {doc.name}
-                    {doc.isRequired ? null : (
-                      <span className="tag"> Optional</span>
-                    )}
-                  </strong>
-                  {doc.details ? <RichText value={doc.details} /> : null}
-                </li>
+                <article className="cdx-card" key={doc.id}>
+                  <span
+                    className={`cdx-chip${doc.isRequired ? " is-required" : ""}`}
+                  >
+                    {doc.isRequired ? "Required" : "Optional"}
+                  </span>
+                  <h3>{doc.name}</h3>
+                  {doc.details ? (
+                    <Disclosure
+                      value={doc.details}
+                      collapsedHeight={132}
+                      describes={doc.name}
+                    />
+                  ) : null}
+                </article>
               ))}
-            </ul>
+            </div>
           </div>
         </section>
       ) : null}
@@ -980,13 +1017,12 @@ export function CountryDetailReference(props: CountryDetailReferenceProps) {
               <h2>Intakes in {country.name}</h2>
               <p>The months this destination opens for entry.</p>
             </div>
-            <div className="intakes">
+            {/* Four month names do not need four full-width panels. */}
+            <ul className="cdx-chips">
               {intakeLabels.map((label) => (
-                <article className="intake" key={label}>
-                  <h3>{label}</h3>
-                </article>
+                <li key={label}>{label}</li>
               ))}
-            </div>
+            </ul>
           </div>
         </section>
       ) : null}
@@ -1096,40 +1132,54 @@ export function CountryDetailReference(props: CountryDetailReferenceProps) {
       {/* ENGLISH */}
       {languageRows.length ? (
         <section className="sec" id="language">
-          <div className="wrap narrow">
+          <div className="wrap">
             <div className="head">
               <span className="eyebrow">Admissions</span>
               <h2>Language requirements for {country.name}</h2>
+              {/* The general note runs to several paragraphs, and it was the
+                * first thing between the heading and the answer a reader came
+                * for. It opens, and continues if they want it. */}
               {language?.generalNotes ? (
-                <RichText value={language.generalNotes} />
+                <Disclosure
+                  value={language.generalNotes}
+                  collapsedHeight={132}
+                  describes="the English requirement"
+                />
               ) : null}
             </div>
-            <div className="cost-table">
-              <div className="ct-row h">
-                <span>Test</span>
-                <span>Requirement</span>
-                <span>Minimum score</span>
-              </div>
+            {/* One card per test rather than a four-row pseudo-table whose
+              * notes column wrapped into a wall. */}
+            <div className="cdx-grid" data-count={languageRows.length}>
               {languageRows.map(([test, requirement, score, notes]) => (
-                <div className="ct-row" key={test}>
-                  <span>{test}</span>
-                  <b>{humanise(requirement)}</b>
-                  <span className="note">{score ?? "—"}</span>
+                <article className="cdx-card" key={test}>
+                  <span className="cdx-chip">
+                    {humanise(requirement)}
+                    {score ? ` · ${score}` : ""}
+                  </span>
+                  <h3>{test}</h3>
                   {notes ? (
-                    <RichText className="test-note" value={notes} />
+                    <Disclosure
+                      value={notes}
+                      collapsedHeight={120}
+                      describes={`the ${test} note`}
+                    />
                   ) : null}
-                </div>
+                </article>
               ))}
             </div>
             {language?.languageWaiverAvailable ? (
-              <>
-                <p className="disclaimer">
-                  A waiver is available for some applicants.
-                </p>
+              <div className="cdx-callout">
+                <h3>An English test waiver is available</h3>
                 {language.waiverNotes ? (
-                  <RichText className="disclaimer" value={language.waiverNotes} />
-                ) : null}
-              </>
+                  <Disclosure
+                    value={language.waiverNotes}
+                    collapsedHeight={110}
+                    describes="the waiver note"
+                  />
+                ) : (
+                  <p>A waiver is available for some applicants.</p>
+                )}
+              </div>
             ) : null}
             {language?.disclaimer ? (
               <RichText className="disclaimer" value={language.disclaimer} />
@@ -1146,7 +1196,11 @@ export function CountryDetailReference(props: CountryDetailReferenceProps) {
               <span className="eyebrow">Student visa</span>
               <h2>Work and visa pathways in {country.name}</h2>
               {work?.visaInformation ? (
-                <RichText value={work.visaInformation} />
+                <Disclosure
+                  value={work.visaInformation}
+                  collapsedHeight={220}
+                  describes="the visa process"
+                />
               ) : null}
             </div>
             {visaFacts.length ? (
@@ -1166,7 +1220,11 @@ export function CountryDetailReference(props: CountryDetailReferenceProps) {
             {workProse.map(([heading, body]) => (
               <div className="prose" key={heading}>
                 <h3>{heading}</h3>
-                <RichText value={body} />
+                <Disclosure
+                  value={body}
+                  collapsedHeight={200}
+                  describes={heading}
+                />
               </div>
             ))}
             <p className="disclaimer">
@@ -1245,55 +1303,28 @@ export function CountryDetailReference(props: CountryDetailReferenceProps) {
         </section>
       ) : null}
 
-      {/* STATISTICS */}
+      {/* STATISTICS
+        * Counts only. Capital, language and currency used to be repeated here
+        * under a second "at a glance" heading, which asked a reader to work out
+        * which of two summaries of the same country was the real one. They are
+        * in the hero panel; this section is what the catalogue counted. */}
       {statRows.length ? (
         <section className="sec sec-alt" id="statistics">
           <div className="wrap">
             <div className="head">
               <span className="eyebrow">Published figures</span>
-              <h2>{country.name} at a glance</h2>
+              <h2>{country.name} by the numbers</h2>
               {derivedStatistics ? (
                 <p>
                   Calculated from published universities and course offerings in
                   the Universta catalogue.
                 </p>
               ) : statistics ? (
-                /* Was "Sourced and verified figures", shown when the row
-                 * carried a source reference. The Country source-verification
-                 * workflow is withdrawn and nothing in the editor sets that
-                 * column any more, so the line both disappeared from every new
-                 * country and claimed a check nobody performs. What is still
-                 * true is where the numbers came from. */
                 <p>Published figures from {country.name}’s statistics profile.</p>
               ) : null}
             </div>
             <div className="statgrid" style={{ marginTop: 0 }}>
               {statRows.map(([label, value]) => (
-                <div className="stat" key={label}>
-                  <b>{value}</b>
-                  <span>{label}</span>
-                </div>
-              ))}
-              {identityRows.map(([label, value]) => (
-                <div className="stat" key={label}>
-                  <b>{value}</b>
-                  <span>{label}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        </section>
-      ) : identityRows.length ? (
-        // Identity is published for every country, so it still has a home when
-        // no statistics exist to anchor the section.
-        <section className="sec sec-alt" id="statistics">
-          <div className="wrap">
-            <div className="head">
-              <span className="eyebrow">Published figures</span>
-              <h2>{country.name} at a glance</h2>
-            </div>
-            <div className="statgrid" style={{ marginTop: 0 }}>
-              {identityRows.map(([label, value]) => (
                 <div className="stat" key={label}>
                   <b>{value}</b>
                   <span>{label}</span>
@@ -1321,15 +1352,15 @@ export function CountryDetailReference(props: CountryDetailReferenceProps) {
                 <RichText value={section.subheading} />
               ) : null}
             </div>
+            {/* An authored section runs to a couple of thousand characters, so
+              * it opens and continues on request rather than arriving as a
+              * wall. The markup is preserved: only the container collapses. */}
             {section.paragraphs.length ? (
-              <div className="prose">
-                {section.paragraphs.map((paragraph, paragraphIndex) => (
-                  <RichText
-                    key={`${section.key}-${paragraphIndex}`}
-                    value={paragraph}
-                  />
-                ))}
-              </div>
+              <Disclosure
+                value={section.paragraphs.join("")}
+                collapsedHeight={300}
+                describes={section.heading || section.key}
+              />
             ) : null}
             {/* A fact grid is a two-column table of short pairs; steps and
               * cards are a numbered or unnumbered list of headed blocks. They
@@ -1354,39 +1385,56 @@ export function CountryDetailReference(props: CountryDetailReferenceProps) {
                       ))}
                     </div>
                   ),
+                  /* A journey reads across, not down: nine steps stacked
+                    * vertically buried the rest of the page under them. */
                   STEPS: (
-                    <div className="steps">
+                    <div className="cdx-rail">
                       {section.items.map((item, itemIndex) => (
-                        <div className="step" key={`${section.key}-${itemIndex}`}>
+                        <div
+                          className="cdx-step"
+                          key={`${section.key}-${itemIndex}`}
+                        >
                           <span className="s-no">
                             {item.step || String(itemIndex + 1)}
                           </span>
-                          <div>
-                            {item.title ? <h3>{item.title}</h3> : null}
-                            {item.body ? <RichText value={item.body} /> : null}
-                          </div>
+                          {item.title ? <h3>{item.title}</h3> : null}
+                          {item.body ? (
+                            <Disclosure
+                              value={item.body}
+                              collapsedHeight={118}
+                              describes={item.title || `step ${itemIndex + 1}`}
+                            />
+                          ) : null}
                         </div>
                       ))}
                     </div>
                   ),
                 }[section.type] ?? (
-                  <div className="why-grid">
+                  <div className="cdx-grid" data-count={section.items.length}>
                     {section.items.map((item, itemIndex) => (
                       <article
-                        className="whycard"
+                        className="cdx-card"
                         key={`${section.key}-${itemIndex}`}
                       >
                         {item.title ? <h3>{item.title}</h3> : null}
-                        {item.body ? <RichText value={item.body} /> : null}
+                        {item.body ? (
+                          <Disclosure
+                            value={item.body}
+                            collapsedHeight={126}
+                            describes={item.title || "this card"}
+                          />
+                        ) : null}
                       </article>
                     ))}
                   </div>
                 )
               : null}
             {section.standalone ? (
-              <div className="prose">
-                <RichText value={section.standalone} />
-              </div>
+              <Disclosure
+                value={section.standalone}
+                collapsedHeight={240}
+                describes={section.heading || section.key}
+              />
             ) : null}
             {section.ctaLabel && section.ctaUrl ? (
               <p className="sec-cta">
@@ -1444,10 +1492,15 @@ export function CountryDetailReference(props: CountryDetailReferenceProps) {
               .
             </p>
           </div>
+          {/* Guidance cards carried a blurb and then eight hundred words of
+            * overview, so two of them filled a screen and the grid lost any
+            * shape. The blurb leads, the overview opens on request, and the
+            * call to action stays pinned to the bottom edge so the cards line
+            * up however long their copy is. */}
           {consultantCards.length ? (
-            <div className="cons-grid">
+            <div className="cdx-grid" data-count={consultantCards.length}>
               {consultantCards.map((card) => (
-                <article className="cons" key={card.id}>
+                <article className="cdx-card cons" key={card.id}>
                   <div className="cons-top">
                     <span className="fl" aria-hidden="true">
                       {initials(card.title)}
@@ -1456,7 +1509,11 @@ export function CountryDetailReference(props: CountryDetailReferenceProps) {
                   </div>
                   <RichText value={card.shortDescription} />
                   {card.overview ? (
-                    <RichText className="cons-overview" value={card.overview} />
+                    <Disclosure
+                      value={card.overview}
+                      collapsedHeight={104}
+                      describes={card.title}
+                    />
                   ) : null}
                   {card.isFreeConsultation ? (
                     <span className="free-badge">Free consultation</span>
