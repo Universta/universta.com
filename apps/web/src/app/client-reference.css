@@ -5312,6 +5312,13 @@
 .cref-dest .wrap.narrow > * {
   max-width: 860px;
 }
+/* Prose keeps a reading measure; a block of data does not read line by line,
+   so it takes the container rather than leaving a third of the row empty. */
+.cref-dest .wrap.narrow > .cdx-facts,
+.cref-dest .wrap.narrow > .cdx-chain,
+.cref-dest .wrap.narrow > .cdx-grid {
+  max-width: none;
+}
 
 /* Section rhythm. One scale, so the gap between a heading and its content is
    the same everywhere and sections are separated by the same distance. */
@@ -5334,22 +5341,29 @@
 .cref-dest .cdx-grid {
   display: grid;
   gap: 18px;
-  align-items: stretch;
-  grid-auto-rows: 1fr;
+  /* `start`, not `stretch`. A grid row is as tall as its tallest item, so a
+     stretched row makes every sibling match whatever one expanded card grew to
+     -- which is how opening one document left three empty boxes beside it a
+     thousand pixels tall. Aligned to the start, a sibling keeps its own height
+     and the row simply has space under it. */
+  align-items: start;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 250px), 1fr));
 }
+/* The section decides its own column count from how many cards it holds, so a
+   six-card section is three and three rather than four and a gap. */
 @media (min-width: 1024px) {
-  .cref-dest .cdx-grid {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-  }
-  .cref-dest .cdx-grid[data-count="1"] {
+  .cref-dest .cdx-grid[data-cols="1"] {
     grid-template-columns: minmax(0, 1fr);
+    max-width: 720px;
   }
-  .cref-dest .cdx-grid[data-count="2"] {
+  .cref-dest .cdx-grid[data-cols="2"] {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-  .cref-dest .cdx-grid[data-count="3"] {
+  .cref-dest .cdx-grid[data-cols="3"] {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .cref-dest .cdx-grid[data-cols="4"] {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 }
 @media (min-width: 640px) and (max-width: 1023px) {
@@ -5358,10 +5372,16 @@
   }
 }
 
-/* A card in that grid. Full height so siblings match, and a column so the
-   description can take the slack and any footer stays on the bottom edge. */
+/* A card in that grid.
+   Equal collapsed height comes from the card's own floor rather than from the
+   row it sits in: that is what lets one card grow past it without dragging its
+   neighbours along. A column, so a footer can still sit on the bottom edge. */
+/* The floor covers the tallest collapsed composition a card grid holds: a chip,
+   a two-line title, the preview with its control line, and a value pinned to
+   the bottom. A grid that mixes a label-only card with one carrying all of
+   those would otherwise show two different card sizes side by side. */
 .cref-dest .cdx-card {
-  height: 100%;
+  min-height: var(--cdx-card-min, 19rem);
   display: flex;
   flex-direction: column;
   background: #fff;
@@ -5370,8 +5390,12 @@
   padding: 20px;
   min-width: 0;
 }
+/* Two lines of room whether the title needs them or not, so the preview under
+   it starts on the same line in every card of a row. */
 .cref-dest .cdx-card > h3 {
   font-size: 16.5px;
+  line-height: 1.35;
+  min-height: calc(2 * 1.35em);
   margin: 0 0 8px;
   overflow-wrap: anywhere;
 }
@@ -5381,6 +5405,13 @@
 }
 .cref-dest .cdx-card .disclosure-text {
   font-size: 14.5px;
+}
+/* The control sits on its own line under the preview. Reserving that line on
+   every card keeps a card whose copy already fits the same height as one that
+   offers to show more. */
+.cref-dest .cdx-card .disclosure,
+.cref-dest .cdx-step .disclosure {
+  min-height: calc(var(--cdx-preview, 120px) + 1.6rem);
 }
 /* A small state chip on a card: Required, Optional, a test requirement. */
 .cref-dest .cdx-chip {
@@ -5425,7 +5456,7 @@
 .cref-dest .cdx-rail {
   display: grid;
   gap: 18px;
-  grid-auto-rows: 1fr;
+  align-items: start;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 230px), 1fr));
   counter-reset: railstep;
 }
@@ -5440,7 +5471,7 @@
   }
 }
 .cref-dest .cdx-step {
-  height: 100%;
+  min-height: var(--cdx-card-min, 19rem);
   display: flex;
   flex-direction: column;
   padding: 20px;
@@ -5453,8 +5484,12 @@
 .cref-dest .cdx-step .s-no {
   margin-bottom: 12px;
 }
+/* Same reason as the card title: a step whose name wraps to two lines must not
+   sit a line lower than the step beside it. */
 .cref-dest .cdx-step h3 {
   font-size: 16px;
+  line-height: 1.35;
+  min-height: calc(3 * 1.35em);
   margin: 0 0 8px;
 }
 /* The connector between steps on a row. Hidden on the last column and on
@@ -5629,4 +5664,163 @@
   .cref-dest .cost-table .ct-row .note {
     grid-column: 1 / -1;
   }
+}
+
+
+/* ==========================================================================
+   Country detail — facts, journey chain and split sections
+   ========================================================================== */
+
+/* A block of label/value facts. Two columns on desktop: ten pairs across the
+   full container read as a spreadsheet with a wide empty margin, and a value
+   belongs under its own label rather than in a far-away cell. */
+.cref-dest .cdx-facts {
+  display: grid;
+  gap: 1px;
+  grid-template-columns: 1fr;
+  margin: 0;
+  background: var(--line);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  overflow: hidden;
+}
+@media (min-width: 760px) {
+  .cref-dest .cdx-facts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+.cref-dest .cdx-fact {
+  background: #fff;
+  padding: 16px 20px;
+  min-width: 0;
+}
+.cref-dest .cdx-fact dt {
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+  margin-bottom: 6px;
+}
+.cref-dest .cdx-fact dd {
+  margin: 0;
+  font-size: 15.5px;
+  font-weight: 650;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+/* The application journey, as a chain.
+   Each row is its own track so the numbering can turn back on itself: the first
+   row runs left to right, the second right to left, and step five therefore
+   sits under step four instead of restarting a page-width away. */
+.cref-dest .cdx-chain {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.cref-dest .cdx-chain-row {
+  display: grid;
+  gap: 18px;
+  align-items: start;
+  grid-template-columns: 1fr;
+  position: relative;
+}
+@media (min-width: 640px) and (max-width: 1023px) {
+  .cref-dest .cdx-chain-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (min-width: 1024px) {
+  .cref-dest .cdx-chain-row {
+    grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
+    grid-auto-flow: column;
+  }
+  /* Visual order only. The markup keeps the steps in the order they are taken,
+     so reading and tab order follow the journey rather than the layout. */
+  .cref-dest .cdx-chain-row[data-reverse="true"] {
+    direction: rtl;
+  }
+  .cref-dest .cdx-chain-row[data-reverse="true"] > * {
+    direction: ltr;
+  }
+  /* The link between one step and the next, pointing the way the row runs. */
+  .cref-dest .cdx-chain-row > .cdx-step::after {
+    content: "";
+    position: absolute;
+    top: 40px;
+    right: -14px;
+    width: 9px;
+    height: 9px;
+    border-top: 2px solid var(--line-2);
+    border-right: 2px solid var(--line-2);
+    transform: rotate(45deg);
+    transition: border-color 0.25s ease;
+  }
+  .cref-dest .cdx-chain-row[data-reverse="true"] > .cdx-step::after {
+    right: auto;
+    left: -14px;
+    transform: rotate(225deg);
+  }
+  .cref-dest .cdx-chain-row > .cdx-step:last-child::after {
+    display: none;
+  }
+  .cref-dest .cdx-step:hover::after {
+    border-color: var(--blue);
+  }
+}
+/* A step lifts very slightly on hover: enough to feel like a step in a
+   sequence, not enough to move the page around. */
+.cref-dest .cdx-step {
+  transition:
+    transform 0.25s ease,
+    box-shadow 0.25s ease,
+    border-color 0.25s ease;
+}
+.cref-dest .cdx-step:hover {
+  transform: translateY(-2px);
+  border-color: var(--line-2);
+  box-shadow: var(--shadow-sm);
+}
+@media (prefers-reduced-motion: reduce) {
+  .cref-dest .cdx-step,
+  .cref-dest .cdx-chain-row > .cdx-step::after {
+    transition: none;
+  }
+  .cref-dest .cdx-step:hover {
+    transform: none;
+  }
+}
+
+/* A section whose content is too small to fill a row on its own: the copy
+   takes the left column and the content sits in a panel beside it. */
+.cref-dest .wrap.cdx-split {
+  display: grid;
+  gap: 28px;
+  align-items: center;
+  grid-template-columns: 1fr;
+}
+@media (min-width: 900px) {
+  .cref-dest .wrap.cdx-split {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 48px;
+  }
+}
+.cref-dest .wrap.cdx-split .head {
+  margin-bottom: 0;
+}
+.cref-dest .cdx-panel {
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: #fff;
+  padding: 24px;
+}
+.cref-dest .cdx-panel-label {
+  display: block;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+  margin-bottom: 14px;
 }
