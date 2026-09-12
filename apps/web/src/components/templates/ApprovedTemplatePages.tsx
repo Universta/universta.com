@@ -154,7 +154,7 @@ function postStudyWork(country: Country) {
 
 function flagFor(country: Pick<Country, 'flag' | 'name'>) {
   return country.flag
-    ? <img src={country.flag.url} alt={country.flag.alt || `${country.name} flag`} />
+    ? <img src={country.flag.url ?? undefined} alt={country.flag.alt || `${country.name} flag`} />
     : <span aria-hidden="true">{country.name.slice(0, 2).toUpperCase()}</span>;
 }
 
@@ -735,7 +735,7 @@ export function ApprovedCountriesListing({
                   {items.map((country) => (
                     <article className="az-tile" key={country.slug}>
                       <div className="t">
-                        <span className="fl">{country.flag ? <img src={country.flag.url} alt={country.flag.alt || ''} /> : country.name.slice(0, 2).toUpperCase()}</span>
+                        <span className="fl">{country.flag ? <img src={country.flag.url ?? undefined} alt={country.flag.alt || ''} /> : country.name.slice(0, 2).toUpperCase()}</span>
                         <h3>Study in {country.name}</h3>
                       </div>
                       <p>{country.shortDescription}</p>
@@ -930,7 +930,7 @@ export function ApprovedCountryDetail({ page, cities = [] }: { page: CountryPage
       <section className="hero">
         <div className="wrap hero-grid">
           <div>
-            <div className="h-flag">{country.flag ? <img src={country.flag.url} alt={country.flag.alt || `${country.name} flag`} /> : country.name.slice(0, 2).toUpperCase()}</div>
+            <div className="h-flag">{country.flag ? <img src={country.flag.url ?? undefined} alt={country.flag.alt || `${country.name} flag`} /> : country.name.slice(0, 2).toUpperCase()}</div>
             <h1>{country.pageHeading || `Study in ${country.name}`}</h1>
             <p className="lede">{country.shortDescription}</p>
             <div className="updated"><Icon name="clock" size={15} />Published source-aware country profile</div>

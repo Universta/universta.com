@@ -12,8 +12,11 @@ export interface Envelope<T> {
   timestamp: string;
 }
 export interface Flag {
-  url: string;
+  /** Null when the country publishes no flag image; the emoji stands in. */
+  url: string | null;
   alt: string;
+  /** Derived by the API from the country's ISO code. */
+  emoji: string | null;
 }
 export interface Country {
   id: string;
@@ -34,7 +37,11 @@ export interface Country {
   displayOrder: number;
   statistics: { universitiesCount: number | null } | null;
   profiles?: ProfileSummary;
-  currency?: { code: string; symbol: string | null } | null;
+  currency?: {
+    code: string;
+    symbol: string | null;
+    name?: string | null;
+  } | null;
   subjects?: Array<{ id: string; name: string; slug: string }>;
   /** What a student needs in hand to study here; empty when none are listed. */
   documents?: Array<{

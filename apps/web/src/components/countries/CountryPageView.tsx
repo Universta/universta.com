@@ -36,7 +36,7 @@ export function CountryPageView({ page }: { page: CountryPage }) {
           </div>
           <div className="hero-card">
             {country.flag ? (
-              <img src={country.flag.url} alt={country.flag.alt || `${country.name} flag`} />
+              <img src={country.flag.url ?? undefined} alt={country.flag.alt || `${country.name} flag`} />
             ) : (
               <div className="hero-placeholder" aria-hidden="true">
                 {country.name.slice(0, 1)}

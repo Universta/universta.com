@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { SearchCombobox } from './SearchCombobox';
 import { CardDescription } from './CardDescription';
+import { CountryFlagMark } from './CountryFlagMark';
 import {
   FILTER_KEYS,
   IELTS_CHOICES,
@@ -875,12 +876,7 @@ export function CountriesReference(props: CountriesReferenceProps) {
                   ) : null}
                   <div className={`card-head${prFriendly(country) ? ' with-badge' : ''}`}>
                     <span className="flag" aria-hidden="true">
-                      {country.flag?.url ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={country.flag.url} alt="" />
-                      ) : (
-                        initials(country.name)
-                      )}
+                      <CountryFlagMark flag={country.flag} name={country.name} />
                     </span>
                     <div>
                       <h3>{country.name}</h3>
@@ -1062,12 +1058,7 @@ export function CountriesReference(props: CountriesReferenceProps) {
                           style={{ width: 34, height: 34, fontSize: 13 }}
                           aria-hidden="true"
                         >
-                          {record.flag?.url ? (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img src={record.flag.url} alt="" />
-                          ) : (
-                            initials(record.name)
-                          )}
+                          <CountryFlagMark flag={record.flag} name={record.name} />
                         </span>
                         <h4>Study in {record.name}</h4>
                       </div>

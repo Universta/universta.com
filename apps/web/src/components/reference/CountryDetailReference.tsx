@@ -7,6 +7,7 @@ const monthName = (value: number) =>
   monthFormat.format(new Date(2020, value - 1, 1));
 import { formatDate, formatNumber } from "@/lib/format";
 import { RichText, richTextToPlainText } from "../phase1/RichText";
+import { CountryFlagMark } from "./CountryFlagMark";
 
 /** The client-approved destination detail page.
  *
@@ -159,6 +160,11 @@ export function CountryDetailReference(props: CountryDetailReferenceProps) {
     (a, b) => a - b,
   );
   const documents = country.documents ?? [];
+  /* The tests the editor ticked. Labels come from the taxonomy the API
+   * resolves, so this prints "IELTS · TOEFL" rather than the stored codes. */
+  const acceptedTests = (country.configuration?.acceptedTests ?? [])
+    .map((test) => test.label || test.code)
+    .filter(Boolean);
   const profileTuition = range(cost?.tuitionMin, cost?.tuitionMax);
   const tuition =
     profileTuition ??
@@ -490,18 +496,80 @@ export function CountryDetailReference(props: CountryDetailReferenceProps) {
     ],
   ].filter(Boolean) as Array<[string, string]>;
 
-  /* Every row in this panel is optional. On a destination whose cost, work,
-   * language and intake profiles are all unpublished the aside still rendered
-   * as a titled card with nothing in it, so it is only mounted when it has at
-   * least one figure to show. */
-  const hasQuickFacts = Boolean(
-    tuition ||
-    living ||
-    postStudyWork ||
-    intakeLabels.length ||
-    ielts ||
-    pathway,
-  );
+  /**
+   * The at-a-glance panel.
+   *
+   * It used to read only the cost, work, language and intake profiles, so a
+   * destination that had not published those showed a card with two rows in it
+   * while the identity the editor had filled in -- capital, language, currency,
+   * the tests it accepts -- sat unused in the same payload.
+   *
+   * Every row is built from a value that is actually present, in priority
+   * order, and the list is then cut to what a summary card should hold. A row
+   * is never invented and never printed empty: a value that is absent produces
+   * no entry at all, which is what keeps this honest on a country at any stage
+   * of authoring.
+   *
+   * A false boolean is not an absent one. "Part-time work: Not permitted" is
+   * the answer a student needs, and hiding it would leave them to guess -- so
+   * the work rows test for a published profile, not for a truthy value. What
+   * they must never do is turn a false or missing value into a positive claim.
+   */
+  const workProfilePublished = Boolean(work);
+  const quickFacts = [
+    country.capitalCity && ["Capital", country.capitalCity],
+    country.officialLanguage && ["Language", country.officialLanguage],
+    country.currency?.code && [
+      "Currency",
+      country.currency.name
+        ? `${country.currency.name} (${country.currency.code})`
+        : country.currency.code,
+    ],
+    intakeLabels.length && ["Intakes", intakeLabels.join(" · ")],
+    /* Only a published range, and labelled for what it is when the figure is
+     * the catalogue's average rather than the country's own. */
+    tuition && [
+      tuitionIsDerived ? "Average tuition" : "Tuition",
+      `${currency}${tuition}${cost?.tuitionPeriod === "PER_YEAR" ? "/yr" : ""}`,
+    ],
+    living && [
+      "Living cost",
+      `${currency}${living}${cost?.livingCostPeriod === "PER_MONTH" ? "/mo" : ""}`,
+    ],
+    ielts && ["IELTS", ielts],
+    workProfilePublished &&
+      typeof work?.partTimeAllowed === "boolean" && [
+        "Part-time work",
+        work.partTimeAllowed
+          ? work.partTimeHoursPerWeek
+            ? `${work.partTimeHoursPerWeek} hours a week`
+            : "Permitted"
+          : "Not permitted",
+      ],
+    workProfilePublished &&
+      typeof work?.postStudyWorkAvailable === "boolean" && [
+        "Post-study work",
+        work.postStudyWorkAvailable
+          ? (postStudyWork ?? "Available")
+          : "Not available",
+      ],
+    pathway && ["PR pathway", pathway],
+    /* Below the work rows on purpose: this largely restates the IELTS line
+     * above, so it earns a place only on a country with room to spare. */
+    acceptedTests.length && ["English tests", acceptedTests.join(" · ")],
+    statistics?.internationalStudentsCount && [
+      "International students",
+      formatNumber(statistics.internationalStudentsCount),
+    ],
+    derivedUniversityCount && [
+      "Universities",
+      formatNumber(derivedUniversityCount),
+    ],
+  ].filter(Boolean) as Array<[string, string]>;
+
+  /* A summary, not a table. What does not fit is on the page below in full. */
+  const shownQuickFacts = quickFacts.slice(0, 8);
+  const hasQuickFacts = shownQuickFacts.length > 0;
 
   /* The Country source-verification workflow has been withdrawn: the editor no
    * longer asks for a source reference or a verification date, so a "verified
@@ -587,12 +655,7 @@ export function CountryDetailReference(props: CountryDetailReferenceProps) {
       >
         <div>
           <span className="h-flag" aria-hidden="true">
-            {country.flag?.url ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={country.flag.url} alt="" />
-            ) : (
-              initials(country.name)
-            )}
+            <CountryFlagMark flag={country.flag} name={country.name} />
           </span>
           {/* A country can be published before its heading is written; the
             * name is what the page is about either way. */}
@@ -629,50 +692,12 @@ export function CountryDetailReference(props: CountryDetailReferenceProps) {
           <aside className="quickfacts">
             <h2>{country.name} at a glance</h2>
             <p className="qf-note">Published figures</p>
-            {tuition ? (
-              <div className="qf-row">
-                <span>Tuition</span>
-                <b>
-                  {currency}
-                  {tuition}
-                  {cost?.tuitionPeriod === "PER_YEAR" ? "/yr" : ""}
-                </b>
+            {shownQuickFacts.map(([label, value]) => (
+              <div className="qf-row" key={label}>
+                <span>{label}</span>
+                <b>{value}</b>
               </div>
-            ) : null}
-            {living ? (
-              <div className="qf-row">
-                <span>Living cost</span>
-                <b>
-                  {currency}
-                  {living}
-                  {cost?.livingCostPeriod === "PER_MONTH" ? "/mo" : ""}
-                </b>
-              </div>
-            ) : null}
-            {postStudyWork ? (
-              <div className="qf-row">
-                <span>Post-study work</span>
-                <b>{postStudyWork}</b>
-              </div>
-            ) : null}
-            {intakeLabels.length ? (
-              <div className="qf-row">
-                <span>Intakes</span>
-                <b>{intakeLabels.join(" · ")}</b>
-              </div>
-            ) : null}
-            {ielts ? (
-              <div className="qf-row">
-                <span>IELTS</span>
-                <b>{ielts}</b>
-              </div>
-            ) : null}
-            {pathway ? (
-              <div className="qf-row">
-                <span>PR pathway</span>
-                <b>{pathway}</b>
-              </div>
-            ) : null}
+            ))}
           </aside>
         ) : null}
       </section>

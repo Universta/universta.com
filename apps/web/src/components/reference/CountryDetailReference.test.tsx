@@ -896,3 +896,167 @@ describe('CountryDetailReference work guidance', () => {
     ).toBe(1);
   });
 });
+
+/**
+ * The at-a-glance panel.
+ *
+ * It read only the cost, work, language and intake profiles, so a country that
+ * had published its identity but not its profiles showed a card with two rows
+ * while capital, language, currency and the tests it accepts sat unused in the
+ * same payload. Every row below has to come from a value that is really there.
+ */
+function glance(over: {
+  country?: Record<string, unknown>;
+  profiles?: Record<string, unknown>;
+}): CountryDetailReferenceProps {
+  const base = build(emptyProfiles);
+  return {
+    ...base,
+    page: {
+      ...base.page,
+      country: { ...base.page.country, ...(over.country ?? {}) },
+      profiles: { ...base.page.profiles, ...(over.profiles ?? {}) },
+    },
+  } as unknown as CountryDetailReferenceProps;
+}
+
+/** The rows the panel actually printed, as label/value pairs. */
+function rows(html: string) {
+  return [...html.matchAll(/<div class="qf-row"><span>([^<]*)<\/span><b>([^<]*)<\/b>/g)].map(
+    (match) => [match[1], match[2]] as [string, string],
+  );
+}
+
+describe('CountryDetailReference at a glance', () => {
+  it('uses the identity the editor filled in, not only the profiles', () => {
+    const html = renderToStaticMarkup(
+      <CountryDetailReference
+        {...glance({
+          country: {
+            capitalCity: 'New Delhi',
+            officialLanguage: 'Hindi and English',
+            currency: { code: 'INR', symbol: '₹', name: 'Indian Rupee' },
+            configuration: {
+              intakeMonths: [1, 7],
+              acceptedTests: [
+                { code: 'IELTS', label: 'IELTS' },
+                { code: 'PTE', label: 'PTE' },
+              ],
+              features: [],
+            },
+          },
+        })}
+      />,
+    );
+    const printed = new Map(rows(html));
+    expect(printed.get('Capital')).toBe('New Delhi');
+    expect(printed.get('Language')).toBe('Hindi and English');
+    expect(printed.get('Currency')).toBe('Indian Rupee (INR)');
+    expect(printed.get('English tests')).toBe('IELTS · PTE');
+    expect(printed.get('Intakes')).toContain('January');
+  });
+
+  it('falls back to the currency code when no name is published', () => {
+    const html = renderToStaticMarkup(
+      <CountryDetailReference
+        {...glance({ country: { currency: { code: 'INR', symbol: '₹', name: null } } })}
+      />,
+    );
+    expect(new Map(rows(html)).get('Currency')).toBe('INR');
+  });
+
+  it('prints no row at all for a value the country has not published', () => {
+    const html = renderToStaticMarkup(
+      <CountryDetailReference
+        {...glance({ country: { capitalCity: 'New Delhi', officialLanguage: null } })}
+      />,
+    );
+    const labels = rows(html).map(([label]) => label);
+    expect(labels).toContain('Capital');
+    expect(labels).not.toContain('Language');
+    /* Never an empty value against a label. */
+    for (const [, value] of rows(html)) expect(value.trim()).not.toBe('');
+  });
+
+  it('states a restriction rather than hiding it', () => {
+    /* A published work profile that says no is an answer, and a student needs
+     * it. Hiding the row would leave them to guess. */
+    const html = renderToStaticMarkup(
+      <CountryDetailReference
+        {...glance({
+          profiles: {
+            work: { partTimeAllowed: false, postStudyWorkAvailable: false },
+          },
+        })}
+      />,
+    );
+    const printed = new Map(rows(html));
+    expect(printed.get('Part-time work')).toBe('Not permitted');
+    expect(printed.get('Post-study work')).toBe('Not available');
+  });
+
+  it('says nothing about work when no work profile is published', () => {
+    const html = renderToStaticMarkup(<CountryDetailReference {...glance({})} />);
+    const labels = rows(html).map(([label]) => label);
+    expect(labels).not.toContain('Part-time work');
+    expect(labels).not.toContain('Post-study work');
+  });
+
+  it('reports permitted work with the hours when they are published', () => {
+    const html = renderToStaticMarkup(
+      <CountryDetailReference
+        {...glance({
+          profiles: {
+            work: { partTimeAllowed: true, partTimeHoursPerWeek: '20' },
+          },
+        })}
+      />,
+    );
+    expect(new Map(rows(html)).get('Part-time work')).toBe('20 hours a week');
+  });
+
+  it('stays a summary rather than becoming a table', () => {
+    const html = renderToStaticMarkup(
+      <CountryDetailReference
+        {...glance({
+          country: {
+            capitalCity: 'New Delhi',
+            officialLanguage: 'Hindi and English',
+            currency: { code: 'INR', symbol: '₹', name: 'Indian Rupee' },
+            configuration: {
+              intakeMonths: [1, 4, 7, 9],
+              acceptedTests: [{ code: 'IELTS', label: 'IELTS' }],
+              features: [],
+            },
+          },
+          profiles: {
+            cost: { tuitionMin: '25000', tuitionMax: '80000', tuitionPeriod: 'PER_YEAR', livingCostMin: '8000', livingCostMax: '15000', livingCostPeriod: 'PER_MONTH', currencyCode: 'INR' },
+            work: { partTimeAllowed: false, postStudyWorkAvailable: false, immigrationPathwayStrength: 'LIMITED' },
+            language: { ieltsRequirement: 'VARIES' },
+            statistics: { internationalStudentsCount: 58134 },
+          },
+        })}
+      />,
+    );
+    expect(rows(html).length).toBeLessThanOrEqual(8);
+    expect(rows(html).length).toBeGreaterThan(4);
+  });
+
+  it('omits the whole panel when a country has published nothing for it', () => {
+    const html = renderToStaticMarkup(
+      <CountryDetailReference
+        {...glance({
+          country: {
+            capitalCity: null,
+            officialLanguage: null,
+            currency: null,
+            configuration: { intakeMonths: [], acceptedTests: [], features: [] },
+            derived: null,
+          },
+        })}
+      />,
+    );
+    expect(html).not.toContain('quickfacts');
+    expect(html).not.toContain('at a glance');
+  });
+});

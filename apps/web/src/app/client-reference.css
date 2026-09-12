@@ -5307,3 +5307,20 @@
 .cref-dest .az-tile .card-desc {
   margin-bottom: 16px;
 }
+
+/* A derived flag emoji standing in for an uploaded image.
+   The slot is sized and centred for two capital letters in the display face, so
+   an emoji dropped into it inherits that weight and sits on the text baseline.
+   It gets its own size, a font stack that actually carries flag glyphs, and
+   normal weight, and the tile's own `place-items: center` does the centring. */
+.cref-dest .flag-emoji {
+  font-family:
+    'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji',
+    'Twemoji Mozilla', sans-serif;
+  font-weight: 400;
+  font-size: 1.5em;
+  line-height: 1;
+  /* Colour emoji ignore `color`, but the inherited ink would otherwise show
+     through on any platform that falls back to a monochrome glyph. */
+  color: initial;
+}

@@ -30,7 +30,7 @@ import {
 } from './profiles/profile.mappers';
 import { PUBLIC_INTAKE_AVAILABILITY } from './profiles/profile.constants';
 import { CountryDerivedService } from './country-derived.service';
-import { resolveCountryMetadata } from './country-metadata';
+import { flagEmojiFromIso, resolveCountryMetadata } from './country-metadata';
 import { sanitizeRichText } from '../common/rich-text';
 import {
   CountryTaxonomyService,
@@ -184,8 +184,14 @@ type CountryRecord = {
 } & ProfileBundle;
 
 export interface FlagDto {
-  url: string;
+  /** Null when the country has no uploaded flag image. The emoji below still
+   * stands in for one, which is the usual case: uploading a flag was withdrawn
+   * from the editor in favour of deriving it. */
+  url: string | null;
   alt: string;
+  /** Derived from the ISO code, so it is present for every country that has
+   * one. Null only when the country has no ISO code to derive it from. */
+  emoji: string | null;
 }
 
 /** What the public site is told about an image: where to fetch it and what to
@@ -223,7 +229,14 @@ export interface CountryPublicDto {
     intakeMonths: number[];
     postStudyWorkPermitMonths: number | null;
   };
-  currency: { code: string; symbol: string | null } | null;
+  currency: {
+    code: string;
+    symbol: string | null;
+    /** The currency's own name, so a page can print "Indian Rupee (INR)"
+     * rather than a bare code. Stored on the record; falls back to the
+     * canonical metadata for a country whose editor never set one. */
+    name: string | null;
+  } | null;
   /** What a student needs in hand to study here. Empty when the Admin has not
    * listed any, so the public page can leave the section out entirely. */
   documents: Array<{
@@ -635,7 +648,11 @@ export class CountriesService {
     return {
       ...this.toPublic(record, await this.taxonomy.snapshot()),
       currency: currencyCode
-        ? { code: currencyCode, symbol: currencySymbol }
+        ? {
+            code: currencyCode,
+            symbol: currencySymbol,
+            name: record.currencyName ?? null,
+          }
         : null,
       derived: await this.derived.detail({
         id: record.id,
@@ -1613,16 +1630,26 @@ export class CountriesService {
     return { url: media.publicUrl, alt: media.altText || countryName };
   }
 
+  /* A flag is an uploaded image, a derived emoji, or both.
+   *
+   * It used to be the image alone, so a country with no upload published no
+   * flag at all and every client fell back to printing the first letters of the
+   * name. Deriving the emoji from the ISO code is what the Admin editor has
+   * shown since the upload control was withdrawn -- the public clients simply
+   * were not told. */
   private flag(record: CountryRecord): FlagDto | null {
-    if (
-      !record.flagMedia ||
-      record.flagMedia.status !== 'ACTIVE' ||
-      record.flagMedia.deletedAt
-    )
-      return null;
+    const media =
+      record.flagMedia &&
+      record.flagMedia.status === 'ACTIVE' &&
+      !record.flagMedia.deletedAt
+        ? record.flagMedia
+        : null;
+    const emoji = flagEmojiFromIso(record.iso2Code) || null;
+    if (!media && !emoji) return null;
     return {
-      url: record.flagMedia.publicUrl,
-      alt: record.flagMedia.altText || `Flag of ${record.name}`,
+      url: media?.publicUrl ?? null,
+      alt: media?.altText || `Flag of ${record.name}`,
+      emoji,
     };
   }
 
@@ -1675,7 +1702,11 @@ export class CountriesService {
           null,
       },
       currency: record.currencyCode
-        ? { code: record.currencyCode, symbol: record.currencySymbol }
+        ? {
+            code: record.currencyCode,
+            symbol: record.currencySymbol,
+            name: record.currencyName ?? null,
+          }
         : null,
       documents: [...record.documents]
         .sort((a, b) => a.displayOrder - b.displayOrder)
