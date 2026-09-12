@@ -114,6 +114,23 @@ describe('destinations shortlist', () => {
     expect(href).not.toContain('page=2');
   });
 
+  it('does not paginate, because the full catalogue is the way through', () => {
+    const html = renderToStaticMarkup(<CountriesReference {...build()} />);
+    expect(html).not.toContain('aria-label="Country results pages"');
+  });
+
+  it('still offers a way back when a URL asks for a page that does not exist', () => {
+    // Without this the shortlist strands a visitor on an empty list: no cards,
+    // and nothing to click to get back to the first page.
+    const html = renderToStaticMarkup(
+      <CountriesReference
+        {...build({ countries: [], meta: { page: 2, limit: 6, total: 3, totalPages: 1 } })}
+      />,
+    );
+    expect(html).toContain('aria-label="Country results pages"');
+    expect(html).toContain('Previous');
+  });
+
   it('keeps the empty state when nothing matched', () => {
     const html = renderToStaticMarkup(
       <CountriesReference

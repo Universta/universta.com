@@ -969,10 +969,12 @@ export function CountriesReference(props: CountriesReferenceProps) {
           </div>
         ) : null}
 
-        {/* Rendered whenever the URL asks for a page, so an out-of-range one
-            still offers a way back rather than a dead end. The landing never
-            paginates: it is a shortlist with a way through to the rest. */}
-        {showingAll && (meta.totalPages > 1 || meta.page > 1) ? (
+        {/* The shortlist does not paginate -- it defers to the full catalogue
+            instead. But a URL can still ask for a page directly, and an
+            out-of-range one has to offer a way back rather than stranding the
+            visitor on an empty list, so the controls appear whenever a page
+            beyond the first was requested. */}
+        {(showingAll ? meta.totalPages > 1 || meta.page > 1 : meta.page > 1) ? (
           <nav className="pager" aria-label="Country results pages">
             <button
               type="button"
