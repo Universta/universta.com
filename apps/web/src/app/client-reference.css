@@ -5253,3 +5253,57 @@
   margin-top: 26px;
   text-align: center;
 }
+
+/* Listing card descriptions.
+   The stored short description is several paragraphs of authored copy, so the
+   card shows a few lines of it and offers to show the rest in place. The clamp
+   is line-based rather than a character count so it holds at every card width.
+   `--desc-lines` is set by the component. */
+.cref-dest .card-desc {
+  flex: 1;
+  margin-bottom: 20px;
+  min-width: 0;
+}
+.cref-dest .card-desc-body {
+  font-size: 15px;
+  color: var(--ink-2);
+  margin: 0;
+  /* Long unbroken strings in authored copy must not push the grid wider. */
+  overflow-wrap: anywhere;
+}
+.cref-dest .card-desc-body.is-clamped {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: var(--desc-lines, 5);
+  line-clamp: var(--desc-lines, 5);
+  overflow: hidden;
+}
+/* Secondary by design: this sits under a description and above the card's own
+   link, and must not compete with it. */
+.cref-dest .card-desc-toggle {
+  margin-top: 8px;
+  padding: 0;
+  background: none;
+  border: 0;
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--blue);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.cref-dest .card-desc-toggle:hover {
+  color: var(--ink);
+}
+.cref-dest .card-desc-toggle:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 3px;
+  border-radius: 3px;
+}
+.cref-dest .az-tile .card-desc-body {
+  font-size: 14.5px;
+}
+.cref-dest .az-tile .card-desc {
+  margin-bottom: 16px;
+}

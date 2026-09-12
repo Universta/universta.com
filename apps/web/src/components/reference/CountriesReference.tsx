@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { SearchCombobox } from './SearchCombobox';
+import { CardDescription } from './CardDescription';
 import {
   FILTER_KEYS,
   IELTS_CHOICES,
@@ -890,7 +891,10 @@ export function CountriesReference(props: CountriesReferenceProps) {
                       ) : null}
                     </div>
                   </div>
-                  <p className="desc">{country.shortDescription}</p>
+                  <CardDescription
+                    value={country.shortDescription}
+                    describes={country.name}
+                  />
                   {tuition || work || intake ? (
                     <div className="facts">
                       {tuition ? (
@@ -1067,7 +1071,11 @@ export function CountriesReference(props: CountriesReferenceProps) {
                         </span>
                         <h4>Study in {record.name}</h4>
                       </div>
-                      <p>{record.shortDescription}</p>
+                      <CardDescription
+                        value={record.shortDescription}
+                        lines={4}
+                        describes={record.name}
+                      />
                       {counts.length ? (
                         <div className="progs">
                           {counts.map(([label, value]) => (
