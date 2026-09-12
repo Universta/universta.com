@@ -36,11 +36,29 @@ describe('CoursesService catalogue policies', () => {
     );
   });
 
-  it('requires source verification for available country mappings', async () => {
+  it('accepts an available country mapping that has no source or verification yet', async () => {
     await expect(
       internals.validateMapping({ availabilityStatus: 'AVAILABLE' }),
+    ).resolves.not.toThrow();
+  });
+
+  it('still validates a source reference and verification date when given', async () => {
+    await expect(
+      internals.validateMapping({
+        availabilityStatus: 'AVAILABLE',
+        sourceReference: 'http://example.org/prospectus',
+      }),
     ).rejects.toMatchObject({
-      response: { code: 'COURSE_MAPPING_SOURCE_REQUIRED' },
+      response: { code: 'COURSE_MAPPING_SOURCE_INVALID' },
+    });
+    await expect(
+      internals.validateMapping({
+        availabilityStatus: 'AVAILABLE',
+        sourceReference: 'https://example.org/prospectus',
+        verifiedAt: new Date(Date.now() + 86_400_000).toISOString(),
+      }),
+    ).rejects.toMatchObject({
+      response: { code: 'COURSE_MAPPING_VERIFICATION_INVALID' },
     });
   });
 

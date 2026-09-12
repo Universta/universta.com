@@ -1494,6 +1494,15 @@ export class CoursesService {
     return { deleted: true };
   }
 
+  /**
+   * What makes a country-course mapping public.
+   *
+   * A citation and a verification date are useful editorial metadata and are
+   * still captured and shown, but they do not decide visibility: an active,
+   * available mapping between a published course and a published country is a
+   * real relationship whether or not anyone has recorded a source for it yet.
+   * Gating on them hid the entire catalogue behind unfinished paperwork.
+   */
   private publicMappingWhere(
     countrySlugs?: string[],
   ): Prisma.CountryCourseWhereInput {
@@ -1501,8 +1510,6 @@ export class CoursesService {
       status: 'ACTIVE',
       deletedAt: null,
       availabilityStatus: { in: ['AVAILABLE', 'LIMITED'] },
-      sourceReference: { not: null },
-      verifiedAt: { not: null },
       country: {
         status: 'PUBLISHED',
         deletedAt: null,
@@ -2010,14 +2017,10 @@ export class CoursesService {
       'COURSE_MAPPING_RANGE_INVALID',
       'Duration',
     );
-    if (
-      (dto.availabilityStatus ?? 'AVAILABLE') !== 'UNAVAILABLE' &&
-      (!dto.sourceReference || !dto.verifiedAt)
-    )
-      throw catalogConflict(
-        'COURSE_MAPPING_SOURCE_REQUIRED',
-        'Available mappings require an HTTPS source and verification date',
-      );
+    // A source reference and verification date are recorded and shown where an
+    // editor has them, but are not required to create an available mapping --
+    // requiring them here would forbid exactly the mappings the public
+    // catalogue now shows. What is supplied is still validated below.
     if (!isHttps(dto.sourceReference))
       throw catalogBadRequest(
         'COURSE_MAPPING_SOURCE_INVALID',
@@ -2148,21 +2151,20 @@ export class CoursesService {
         field: 'studyModes',
         message: 'At least one active Study Mode is required',
       });
+    // Matches publicMappingWhere: a source reference and verified date are not
+    // required to publish, because they are not required to be visible.
     const valid = course.countryCourses.filter(
       (row: any) =>
         row.status === 'ACTIVE' &&
         row.deletedAt === null &&
         ['AVAILABLE', 'LIMITED'].includes(row.availabilityStatus) &&
         row.country.status === 'PUBLISHED' &&
-        !row.country.deletedAt &&
-        row.sourceReference &&
-        row.verifiedAt,
+        !row.country.deletedAt,
     );
     if (!valid.length)
       errors.push({
         field: 'countries',
-        message:
-          'At least one verified available published country mapping is required',
+        message: 'At least one available published country mapping is required',
       });
     return errors;
   }
