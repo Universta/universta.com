@@ -2,7 +2,7 @@ import Link from "next/link";
 import { intakeRange } from "@/lib/intake-range";
 import { PhaseOneFooter, PhaseOneHeader, Crumbs } from "./PhaseOneChrome";
 import { consultantContactActions } from "@/lib/consultant-contact";
-import { RichText } from "./RichText";
+import { RichText, richTextToPlainText } from "./RichText";
 import { StudentCatalogueActions } from "@/components/student/StudentCatalogueActions";
 import {
   resolveContentVariables,
@@ -132,15 +132,23 @@ const variableContextByResource: Record<string, ContentVariableContext> = {
 function title(row: AnyRecord) {
   return row.title ?? row.name ?? row.quote?.slice(0, 80) ?? "Published record";
 }
+/** A card's one-line summary.
+ *
+ * These fields are authored in the WYSIWYG, so a summary arrives as
+ * `<p>The national capital…</p>`. A card shows the words; printing the tags was
+ * what put a literal "<p>" at the start of every city on the listing. The
+ * record's own page still renders the rich version. */
 function description(row: AnyRecord) {
-  return (
+  const value =
     row.summary ??
     row.shortDescription ??
     row.description ??
     row.journey ??
     row.quote ??
-    ""
-  );
+    "";
+  return typeof value === "string" && /<[a-z][^>]*>/i.test(value)
+    ? richTextToPlainText(value)
+    : value;
 }
 /** The published prose for a record, or null when there is none.
  *

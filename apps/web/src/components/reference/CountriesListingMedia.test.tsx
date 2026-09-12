@@ -61,14 +61,14 @@ describe('countries listing media', () => {
     ['PER_MONTH', 'EUR', '1000', 'EUR/month', '1,000'],
     ['PER_TERM', 'EUR', '4500', 'EUR/term', '4,500'],
     ['ONE_TIME', 'EUR', '500', 'EUR one-time', '500'],
-  ])('formats %s tuition with its currency and period', (tuitionPeriod, currencyCode, tuitionMin, rate, range) => {
+  ])('formats %s tuition with its currency and period', (tuitionPeriod, currencyCode, tuitionMin, unit, range) => {
     expect(
       tuitionLabel(
         country({
           profiles: { cost: { tuitionPeriod, currencyCode, tuitionMin } },
         }),
       ),
-    ).toEqual({ rate: `(${rate})`, range });
+    ).toEqual({ unit, range });
   });
 
   it('does not render an ambiguous tuition number without both amount and currency', () => {

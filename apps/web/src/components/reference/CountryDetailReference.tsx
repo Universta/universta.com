@@ -261,12 +261,16 @@ export function CountryDetailReference(props: CountryDetailReferenceProps) {
    * rights, a residency pathway -- follow them with their own copy. Nothing
    * about intakes or test scores: those are facts, and they have sections.
    */
+  /* A ticked feature is a label and nothing else -- "Low tuition fees",
+   * "Residential campuses". Sixteen of those rendered as full cards produced
+   * sixteen mostly-empty boxes nineteen rems tall. They are a different shape
+   * of content from a work-rights summary, so they get a different, compact
+   * treatment, and only the entries that actually carry copy get a card. */
+  const featureTiles = (country.configuration?.features ?? []).map(
+    (feature) => feature.label || feature.code,
+  );
+
   const whyCards = [
-    ...(country.configuration?.features ?? []).map((feature) => ({
-      h: feature.label || feature.code,
-      p: "",
-      stat: "",
-    })),
     postStudyWork && {
       h: "Post-study work rights",
       p:
@@ -627,7 +631,7 @@ export function CountryDetailReference(props: CountryDetailReferenceProps) {
 
   /** Built after the fact from what actually rendered. */
   const jump = [
-    whyCards.length && ["why", `Why ${country.name}`],
+    (whyCards.length || featureTiles.length) && ["why", `Why ${country.name}`],
     universitySectionAvailable && ["unis", "Universities"],
     subjects.length && ["subjects", "Subjects"],
     intakeLabels.length && ["intakes", "Intakes"],
@@ -751,7 +755,7 @@ export function CountryDetailReference(props: CountryDetailReferenceProps) {
       ) : null}
 
       {/* WHY */}
-      {whyCards.length ? (
+      {whyCards.length || featureTiles.length ? (
         <section className="sec" id="why">
           <div className="wrap">
             <div className="head">
@@ -762,24 +766,37 @@ export function CountryDetailReference(props: CountryDetailReferenceProps) {
                 {country.name}, not an editorial claim.
               </p>
             </div>
-            <div className="cdx-grid" data-cols={columnsForCount(whyCards.length)}>
-              {whyCards.map((card) => (
-                <article className="cdx-card" key={card.h}>
-                  <h3>{card.h}</h3>
-                  {/* A feature is a label on its own; a profile summary brings
-                    * copy that can run long, so it collapses like every other
-                    * card on the page and the row stays level. */}
-                  {card.p ? (
+            {featureTiles.length ? (
+              <ul className="cdx-tiles" data-testid="country-feature-tiles">
+                {featureTiles.map((label) => (
+                  <li className="cdx-tile" key={label}>
+                    <span className="cdx-tile-mark" aria-hidden="true" />
+                    <span className="cdx-tile-label">{label}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+            {/* Only the entries that carry copy. These collapse like every
+              * other card on the page, and the row stays level. */}
+            {whyCards.length ? (
+              <div
+                className="cdx-grid"
+                data-cols={columnsForCount(whyCards.length)}
+                data-testid="country-why-cards"
+              >
+                {whyCards.map((card) => (
+                  <article className="cdx-card" key={card.h}>
+                    <h3>{card.h}</h3>
                     <Disclosure
                       value={card.p}
                       collapsedHeight={CARD_PREVIEW}
                       describes={card.h}
                     />
-                  ) : null}
-                  {card.stat ? <span className="stat">{card.stat}</span> : null}
-                </article>
-              ))}
-            </div>
+                    {card.stat ? <span className="stat">{card.stat}</span> : null}
+                  </article>
+                ))}
+              </div>
+            ) : null}
           </div>
         </section>
       ) : null}
@@ -1312,41 +1329,46 @@ export function CountryDetailReference(props: CountryDetailReferenceProps) {
               <h2>Cities in {country.name}</h2>
               <p>Published student cities with their own guides.</p>
             </div>
-            <div className="cities">
-              {cities.map((city) => (
-                <Link
-                  className="city"
-                  key={city.id}
-                  // A city guide lives under its destination; `/cities/<slug>`
-                  // is not a route the site serves, so every one of these
-                  // links was a 404.
-                  href={`/study-in/${country.slug}/${city.slug}`}
-                >
-                  <div
-                    className="city-img"
-                    style={
-                      city.heroMedia?.url
-                        ? {
-                            backgroundImage: `linear-gradient(180deg,rgba(13,21,36,0) 40%,rgba(13,21,36,.72)), url(${city.heroMedia.url})`,
-                          }
-                        : undefined
-                    }
+            {/* Text first. A city guide carries a short description and a
+              * region, and most have no photograph -- the old card gave a
+              * third of its height to a flat blue panel standing in for one,
+              * then printed the description's `<p>` tags as literal text. */}
+            <div className="cities" data-cols={columnsForCount(cities.length)}>
+              {cities.map((city) => {
+                // Stored as authored rich text. A card shows the words, not the
+                // markup; the city's own page renders the rich version.
+                const summary = city.shortDescription
+                  ? richTextToPlainText(city.shortDescription)
+                  : "";
+                return (
+                  <Link
+                    className="city"
+                    key={city.id}
+                    // A city guide lives under its destination; `/cities/<slug>`
+                    // is not a route the site serves, so every one of these
+                    // links was a 404.
+                    href={`/study-in/${country.slug}/${city.slug}`}
                   >
-                    <h3>{city.name}</h3>
-                  </div>
-                  <div className="city-b">
-                    {city.shortDescription ? (
-                      <p>{city.shortDescription}</p>
+                    {city.heroMedia?.url ? (
+                      <span
+                        className="city-img"
+                        style={{ backgroundImage: `url(${city.heroMedia.url})` }}
+                        aria-hidden="true"
+                      />
                     ) : null}
-                    {city.state?.name ? (
-                      <div className="city-row">
-                        <span>Region</span>
-                        <b>{city.state.name}</b>
-                      </div>
-                    ) : null}
-                  </div>
-                </Link>
-              ))}
+                    <span className="city-b">
+                      <span className="city-name">{city.name}</span>
+                      {city.state?.name ? (
+                        <span className="city-region">{city.state.name}</span>
+                      ) : null}
+                      {summary ? <span className="city-sum">{summary}</span> : null}
+                      <span className="city-go">
+                        City guide<span aria-hidden="true"> →</span>
+                      </span>
+                    </span>
+                  </Link>
+                );
+              })}
             </div>
           </div>
         </section>

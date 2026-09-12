@@ -1119,7 +1119,10 @@ describe('CountryDetailReference layout system', () => {
             ],
           }),
           section('student-life', 'CARD_GRID', {
-            items: [{ title: 'Hostels', description: '<p>On campus.</p>' }],
+            items: [
+              { title: 'Hostels', description: '<p>On campus.</p>' },
+              { title: 'Societies', description: '<p>Run by students.</p>' },
+            ],
           }),
         ],
       },
@@ -1130,10 +1133,14 @@ describe('CountryDetailReference layout system', () => {
     const html = renderToStaticMarkup(
       <CountryDetailReference {...withSectionsAndDocs()} />,
     );
-    /* Documents, why-study and the card-grid section all use it, so a change to
-     * the column rules reaches all of them at once. */
-    expect(html.split('cdx-grid').length - 1).toBeGreaterThanOrEqual(3);
+    /* Documents and the card-grid section both use it, so a change to the
+     * column rules reaches them at once. */
+    expect(html.split('cdx-grid').length - 1).toBeGreaterThanOrEqual(2);
     expect(html).toContain('cdx-card');
+    /* A ticked feature is a label and nothing else, so it takes the compact
+     * tile rather than a card with a body it has nothing to put in. */
+    expect(html).toContain('cdx-tiles');
+    expect(html).toContain('English-taught degrees');
     /* And the old bespoke markup is gone. */
     expect(html).not.toContain('editorial-checklist');
     expect(html).not.toContain('class="why-grid"');
@@ -1143,9 +1150,9 @@ describe('CountryDetailReference layout system', () => {
     const html = renderToStaticMarkup(
       <CountryDetailReference {...withSectionsAndDocs()} />,
     );
-    /* Two features ask for two columns rather than leaving two cards stranded
-     * in a four-column row; six documents ask for three, so they land as two
-     * full rows instead of four and a gap. */
+    /* Two cards ask for two columns rather than leaving them stranded in a
+     * four-column row; six documents ask for three, so they land as two full
+     * rows instead of four and a gap. */
     expect(html).toContain('data-cols="2"');
     expect(html).toContain('data-cols="3"');
   });

@@ -80,6 +80,10 @@ const allowed = [
   'livingMax',
   'sort',
   'page',
+  // The listing is a shortlist by default. `view=all` opens the same page as
+  // the full catalogue, so every filter already in the URL carries straight
+  // over and there is no second destinations route to keep in step.
+  'view',
 ] as const;
 
 function one(value: string | string[] | undefined) {
@@ -95,19 +99,27 @@ function parseFilters(searchParams: SearchParams) {
   ) as Record<string, string>;
 }
 
-/** `region` is the shareable public name for what the API calls `continent`. */
+/** `region` is the shareable public name for what the API calls `continent`.
+ * `view` is ours, not the API's, so it never travels with the query. */
 function apiFilters(filters: Record<string, string>) {
   const result: Record<string, string> = {};
   for (const [key, value] of Object.entries(filters)) {
-    if (value) result[key === 'region' ? 'continent' : key] = value;
+    if (value && key !== 'view') result[key === 'region' ? 'continent' : key] = value;
   }
   return result;
 }
 
+/** How many cards the landing shows: three across, two rows. */
+export const LANDING_LIMIT = 6;
+
 async function loadData(filters: Record<string, string>) {
+  const showingAll = filters.view === 'all';
   try {
     const [countries, continents, directory, consultants, everyCountry, filterOptions] = await Promise.all([
-      getCountries({ ...apiFilters(filters), limit: '12' }),
+      // The landing asks for six; the full catalogue asks for everything. Either
+      // way `meta.total` is the count of everything that matched, so the result
+      // count and the region tallies describe the catalogue and not the page.
+      getCountries({ ...apiFilters(filters), limit: showingAll ? '100' : String(LANDING_LIMIT) }),
       getContinents(),
       getDirectory({ limit: '100' }),
       phaseList<AnyRecord>('consultants', { limit: '6' }).catch(() => ({ data: [] as AnyRecord[] })),
@@ -136,6 +148,7 @@ async function loadData(filters: Record<string, string>) {
       directoryMeta: directory.meta,
       consultants: consultants.data,
       filterOptions,
+      showingAll,
     };
   } catch {
     return null;
@@ -178,6 +191,8 @@ export default async function CountriesPage({
       filters={filters}
       filterOptions={data.filterOptions}
       content={content}
+      showingAll={data.showingAll}
+      landingLimit={LANDING_LIMIT}
     />
   );
 }

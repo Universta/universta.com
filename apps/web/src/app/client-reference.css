@@ -1963,6 +1963,18 @@
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 20px;
+  /* `start`, not the default stretch. A grid row is as tall as its tallest
+     item, so reading more on one destination used to pull every card beside it
+     to the same height -- three cards growing when one was asked to. Aligned to
+     the start each card keeps its own height and the row has space under it.
+     The same rule the detail page's card grids already follow. */
+  align-items: start;
+}
+/* Collapsed cards still line up, because the floor is the card's own and not
+   the row's: the head, a two-line preview with its control, the stat strip and
+   the link. One card growing past it changes nothing for its neighbours. */
+.cref-dest .ccard {
+  min-height: var(--ccard-min, 27rem);
 }
 .cref-dest .ccard {
   background: #fff;
@@ -2045,26 +2057,78 @@
   overflow: hidden;
   margin-bottom: 20px;
 }
+/* A stat cell.
+   The three cells sit in one grid row, so the tallest decides the row and one
+   long value used to make a single card's strip nineteen pixels taller than
+   every other card on the page. Both halves of the cell reserve the room two
+   lines need, whether this particular country needs them or not: the label
+   area covers a wrapped label plus its unit, the value area covers a wrapped
+   range. Every strip then measures the same from card to card. */
 .cref-dest .ccard .facts .f {
   background: #fff;
   padding: 13px 12px;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
 }
-.cref-dest .ccard .facts .f span {
+.cref-dest .ccard .facts .f-k {
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.05em;
   text-transform: uppercase;
   color: var(--muted);
   display: block;
-  margin-bottom: 4px;
+  line-height: 1.3;
+  /* Label, and the unit under it. Reserved on every cell so "Intakes" and
+     "Tuition / AUD/yr" start their value on the same line. */
+  min-height: calc(2 * 1.3em);
+  margin-bottom: 6px;
 }
-.cref-dest .ccard .facts .f b {
+/* The currency and period: secondary to the label, and never competing with
+   the number underneath it. */
+.cref-dest .ccard .facts .f-u {
+  display: block;
+  font-style: normal;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  color: var(--ink-3, var(--muted));
+  font-size: 10.5px;
+}
+.cref-dest .ccard .facts .f-v {
   font-family: var(--dsp);
   font-size: 14.5px;
   font-weight: 700;
   color: var(--ink);
   display: block;
   line-height: 1.3;
+  /* Two lines of room. "0–20,000" takes one and "60,000–1,200,000" takes two;
+     reserving the pair keeps the strip level across the whole listing. */
+  min-height: calc(2 * 1.3em);
+  margin-top: auto;
+  overflow-wrap: anywhere;
+}
+/* A stat this country has not published. Present, so the cell still occupies
+   its column, but plainly not a number. */
+.cref-dest .ccard .facts .f-none {
+  font-family: var(--body, inherit);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink-3, var(--muted));
+}
+
+/* The way through to the rest of the catalogue, under the six cards. */
+.cref-dest .view-all {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  margin-top: 28px;
+}
+.cref-dest .view-all-note {
+  font-size: 13.5px;
+  color: var(--muted);
 }
 .cref-dest .card-cta {
   display: flex;
@@ -2928,60 +2992,118 @@
   color: var(--ink-2);
 }
 
+/* Cities.
+   Text first, because most cities have no photograph and the old card spent a
+   third of its height on a flat blue panel standing in for one. The column
+   count follows the number of cities -- six becomes three and three, not four
+   and a stranded pair. */
 .cref-dest .cities {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
   gap: 18px;
+  /* Stretch is safe here, unlike the disclosure grids: a city card has no
+     expandable copy -- the summary is clamped -- so nothing can grow and drag
+     its neighbours with it. Each row simply lines up. */
+  align-items: stretch;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
 }
+@media (min-width: 1024px) {
+  .cref-dest .cities[data-cols="1"] {
+    grid-template-columns: minmax(0, 1fr);
+    max-width: 520px;
+  }
+  .cref-dest .cities[data-cols="2"] {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .cref-dest .cities[data-cols="3"] {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .cref-dest .cities[data-cols="4"] {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+@media (min-width: 640px) and (max-width: 1023px) {
+  .cref-dest .cities {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 639px) {
+  .cref-dest .cities {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* The same border, radius and hover as every other card in the system. */
 .cref-dest .city {
   background: #fff;
   border: 1px solid var(--line);
   border-radius: var(--r-lg);
   overflow: hidden;
-  transition: 0.25s;
-  display: block;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  transition: transform 0.25s var(--ease), box-shadow 0.25s var(--ease),
+    border-color 0.25s var(--ease);
 }
 .cref-dest .city:hover {
   transform: translateY(-3px);
   box-shadow: var(--shadow);
+  border-color: var(--line-2);
 }
-/* The title is always white, so the tile keeps a dark base even when the city
-   has no hero image to sit the gradient on. */
+/* Only rendered when the city actually has a picture. No placeholder panel
+   stands in for one that does not exist. */
 .cref-dest .city-img {
-  height: 120px;
-  background: linear-gradient(160deg, #2f4f8f, #14264a);
-  display: flex;
-  align-items: flex-end;
-  padding: 16px;
+  display: block;
+  height: 132px;
   background-size: cover;
   background-position: center;
-}
-.cref-dest .city-img h3 {
-  color: #fff;
-  font-size: 18px;
-  text-shadow: 0 1px 8px rgba(13, 21, 36, 0.6);
+  background-color: var(--soft);
 }
 .cref-dest .city-b {
-  padding: 18px 20px;
-}
-.cref-dest .city-b p {
-  font-size: 13.5px;
-  color: var(--ink-2);
-  margin-bottom: 12px;
-}
-.cref-dest .city-row {
   display: flex;
-  justify-content: space-between;
-  font-size: 12.5px;
-  padding: 7px 0;
-  border-top: 1px solid var(--line);
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 6px;
+  padding: 18px 20px;
+  min-width: 0;
 }
-.cref-dest .city-row span {
+.cref-dest .city-name {
+  font-family: var(--dsp);
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--ink);
+  line-height: 1.25;
+}
+/* The region reads as the city's own subtitle rather than a detached row
+   pinned under a rule at the bottom of the card. */
+.cref-dest .city-region {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
   color: var(--muted);
 }
-.cref-dest .city-row b {
-  color: var(--ink);
+/* Four lines, so one discursive description cannot make its card twice the
+   height of the card beside it. */
+.cref-dest .city-sum {
+  margin-top: 4px;
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--ink-2);
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.cref-dest .city-go {
+  margin-top: auto;
+  padding-top: 10px;
+  font-size: 13.5px;
   font-weight: 600;
+  color: var(--blue);
+}
+.cref-dest .city:hover .city-go {
+  text-decoration: underline;
 }
 
 .cref-dest .cta-inline {
@@ -5413,6 +5535,64 @@
 .cref-dest .cdx-step .disclosure {
   min-height: calc(var(--cdx-preview, 120px) + 1.6rem);
 }
+/* Ticked features.
+   A feature is a label and nothing more, so it gets a tile rather than a card:
+   the same border, radius and hover as everything else in this section, at the
+   height the content actually needs. Sixteen of these used to render as
+   sixteen nineteen-rem boxes with a heading and nothing under it.
+   The tiles flow rather than sit on a fixed column count, so a row fills and
+   wraps instead of leaving a ragged gap, and a long label simply takes the
+   width it needs. */
+.cref-dest .cdx-tiles {
+  list-style: none;
+  margin: 0 0 18px;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 220px), 1fr));
+}
+.cref-dest .cdx-tiles:last-child {
+  margin-bottom: 0;
+}
+.cref-dest .cdx-tile {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 12px 14px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md, 12px);
+  transition: border-color 0.2s var(--ease), box-shadow 0.2s var(--ease);
+}
+.cref-dest .cdx-tile:hover {
+  border-color: var(--line-2);
+  box-shadow: var(--sh-sm, 0 1px 4px rgba(13, 21, 36, 0.06));
+}
+/* A quiet marker, not an emoji and not a decorative icon font: a dot that
+   reads as "this applies here" without competing with the label. */
+.cref-dest .cdx-tile-mark {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--blue);
+  box-shadow: 0 0 0 3px var(--blue-50);
+}
+.cref-dest .cdx-tile-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+@media (min-width: 1024px) {
+  /* Four across at most, matching the card grid's cap. */
+  .cref-dest .cdx-tiles {
+    grid-template-columns: repeat(auto-fill, minmax(max(220px, calc((100% - 30px) / 4)), 1fr));
+  }
+}
+
 /* A small state chip on a card: Required, Optional, a test requirement. */
 .cref-dest .cdx-chip {
   align-self: flex-start;

@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { getAllCities } from '@/lib/locations';
 import { staticPageMetadata } from '@/lib/static-page-seo';
+import { richTextToPlainText } from '@/components/phase1/RichText';
 
 export const dynamic = 'force-dynamic';
 
@@ -86,9 +87,13 @@ export default async function CitiesPage() {
                   >
                     <div className="subj-body">
                       <h3>{city.name}</h3>
+                      {/* Authored as rich text, so the card shows the words
+                          rather than the `<p>` the editor's tool wrapped them
+                          in. The city's own page renders the rich version. */}
                       <p>
-                        {city.shortDescription ??
-                          `Published city profile in ${group.name}.`}
+                        {city.shortDescription
+                          ? richTextToPlainText(city.shortDescription)
+                          : `Published city profile in ${group.name}.`}
                       </p>
                       <div className="subj-foot">
                         <span>{city.state?.name ?? group.name}</span>

@@ -68,6 +68,12 @@ export type CountriesReferenceProps = {
     currencies: Array<{ code: string; count: number }>;
   };
   content: Record<string, SectionCopy | undefined>;
+  /** True on the full catalogue (`?view=all`), false on the landing shortlist.
+   * Both are this same page, so the filters, drawer, sort and counts are shared
+   * rather than reimplemented behind a second route. */
+  showingAll?: boolean;
+  /** How many cards the landing shows before it defers to the full catalogue. */
+  landingLimit?: number;
 };
 
 
@@ -122,8 +128,10 @@ export function tuitionLabel(country: Country | DirectoryRecord) {
   const max = cost.tuitionMax ? formatNumber(cost.tuitionMax) : null;
   const range = min && max && min !== max ? `${min}–${max}` : (min ?? max);
   const period = TUITION_PERIOD_SUFFIX[cost.tuitionPeriod ?? ''] ?? '';
-  const rate = `(${code}${period})`;
-  return {rate, range};
+  // The unit travels beside the value rather than inside the label, so every
+  // card's label line is the same length and the currency can be styled as the
+  // secondary thing it is.
+  return { unit: `${code}${period}`, range };
 }
 
 function workLabel(country: Country | DirectoryRecord) {
@@ -156,6 +164,21 @@ function prFriendly(country: Country | DirectoryRecord) {
 
 export function CountriesReference(props: CountriesReferenceProps) {
   const { countries, meta, directory, filters, content } = props;
+  const landingLimit = props.landingLimit ?? 6;
+  const showingAll = props.showingAll ?? false;
+  /** The landing is a shortlist. Everything beyond the first six lives on the
+   * same page with `view=all`, so the link carries the current filters and
+   * sort untouched rather than dropping a visitor back into an unfiltered
+   * catalogue. */
+  const viewAllHref = (() => {
+    const params = new URLSearchParams();
+    for (const [key, value] of Object.entries(filters)) {
+      if (value && key !== 'view' && key !== 'page') params.set(key, value);
+    }
+    params.set('view', 'all');
+    return `/countries?${params.toString()}`;
+  })();
+  const hasMoreThanLanding = !showingAll && meta.total > landingLimit;
   const options = props.filterOptions ?? {
     subjects: [],
     intakes: [],
@@ -842,6 +865,7 @@ export function CountriesReference(props: CountriesReferenceProps) {
 
         <p className="res-count" data-testid="country-count">
           Showing {countries.length} of {meta.total} destination{meta.total === 1 ? '' : 's'}
+          {hasMoreThanLanding ? ' that match' : ''}
         </p>
 
         {countries.length === 0 ? (
@@ -892,26 +916,33 @@ export function CountriesReference(props: CountriesReferenceProps) {
                     value={country.shortDescription}
                     describes={country.name}
                   />
+                  {/* All three cells, always, whenever the country has any of
+                      them. A cell with nothing to say shows a dash rather than
+                      collapsing, because a missing stat used to shorten one
+                      card's grid and leave the row ragged. */}
                   {tuition || work || intake ? (
-                    <div className="facts">
-                      {tuition ? (
-                        <div className="f">
-                          <span>Tuition {tuition.rate || ''}</span>
-                          <b>{tuition.range || ''}</b>
-                        </div>
-                      ) : null}
-                      {work ? (
-                        <div className="f">
-                          <span>Post-study work</span>
-                          <b>{work}</b>
-                        </div>
-                      ) : null}
-                      {intake ? (
-                        <div className="f">
-                          <span>Intakes</span>
-                          <b>{intake}</b>
-                        </div>
-                      ) : null}
+                    <div className="facts" data-testid="country-stats">
+                      <div className="f">
+                        <span className="f-k">
+                          Tuition
+                          {tuition?.unit ? <em className="f-u">{tuition.unit}</em> : null}
+                        </span>
+                        <b className="f-v">
+                          {tuition?.range ?? <span className="f-none">Not published</span>}
+                        </b>
+                      </div>
+                      <div className="f">
+                        <span className="f-k">Post-study work</span>
+                        <b className="f-v">
+                          {work ?? <span className="f-none">Not published</span>}
+                        </b>
+                      </div>
+                      <div className="f">
+                        <span className="f-k">Intakes</span>
+                        <b className="f-v">
+                          {intake ?? <span className="f-none">Not published</span>}
+                        </b>
+                      </div>
                     </div>
                   ) : null}
                   <Link className="card-cta" href={`/countries/${country.slug}`}>
@@ -923,9 +954,27 @@ export function CountriesReference(props: CountriesReferenceProps) {
           </div>
         )}
 
-        {/* Rendered whenever the URL asks for a page, so an out-of-range one
-            still offers a way back rather than a dead end. */}
-        {meta.totalPages > 1 || meta.page > 1 ? (
+        {/* Only when there is genuinely more catalogue than the six on screen.
+            Exactly six matches need no invitation to see six. */}
+        {hasMoreThanLanding ? (
+          <div className="view-all">
+            <Link className="btn btn-ghost" href={viewAllHref} data-testid="country-view-all">
+              View all destinations
+              <span aria-hidden="true"> →</span>
+            </Link>
+            <span className="view-all-note">
+              {meta.total} destination{meta.total === 1 ? '' : 's'} match
+              {meta.total === 1 ? 'es' : ''} your filters
+            </span>
+          </div>
+        ) : null}
+
+        {/* The shortlist does not paginate -- it defers to the full catalogue
+            instead. But a URL can still ask for a page directly, and an
+            out-of-range one has to offer a way back rather than stranding the
+            visitor on an empty list, so the controls appear whenever a page
+            beyond the first was requested. */}
+        {(showingAll ? meta.totalPages > 1 || meta.page > 1 : meta.page > 1) ? (
           <nav className="pager" aria-label="Country results pages">
             <button
               type="button"
