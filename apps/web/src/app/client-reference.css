@@ -5259,52 +5259,24 @@
    card shows a few lines of it and offers to show the rest in place. The clamp
    is line-based rather than a character count so it holds at every card width.
    `--desc-lines` is set by the component. */
-.cref-dest .card-desc {
+.cref-dest .disclosure {
   flex: 1;
   margin-bottom: 20px;
   min-width: 0;
 }
-.cref-dest .card-desc-body {
+.cref-dest .disclosure-body {
   font-size: 15px;
   color: var(--ink-2);
   margin: 0;
   /* Long unbroken strings in authored copy must not push the grid wider. */
   overflow-wrap: anywhere;
 }
-.cref-dest .card-desc-body.is-clamped {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: var(--desc-lines, 5);
-  line-clamp: var(--desc-lines, 5);
-  overflow: hidden;
-}
 /* Secondary by design: this sits under a description and above the card's own
    link, and must not compete with it. */
-.cref-dest .card-desc-toggle {
-  margin-top: 8px;
-  padding: 0;
-  background: none;
-  border: 0;
-  font: inherit;
-  font-size: 13.5px;
-  font-weight: 700;
-  color: var(--blue);
-  cursor: pointer;
-  text-decoration: underline;
-  text-underline-offset: 3px;
-}
-.cref-dest .card-desc-toggle:hover {
-  color: var(--ink);
-}
-.cref-dest .card-desc-toggle:focus-visible {
-  outline: 2px solid var(--blue);
-  outline-offset: 3px;
-  border-radius: 3px;
-}
-.cref-dest .az-tile .card-desc-body {
+.cref-dest .az-tile .disclosure-text {
   font-size: 14.5px;
 }
-.cref-dest .az-tile .card-desc {
+.cref-dest .az-tile .disclosure {
   margin-bottom: 16px;
 }
 
@@ -5363,6 +5335,7 @@
   display: grid;
   gap: 18px;
   align-items: stretch;
+  grid-auto-rows: 1fr;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 250px), 1fr));
 }
 @media (min-width: 1024px) {
@@ -5402,10 +5375,11 @@
   margin: 0 0 8px;
   overflow-wrap: anywhere;
 }
-.cref-dest .cdx-card .card-desc {
+.cref-dest .cdx-card .disclosure {
   margin-bottom: 0;
+  min-width: 0;
 }
-.cref-dest .cdx-card .card-desc-body {
+.cref-dest .cdx-card .disclosure-text {
   font-size: 14.5px;
 }
 /* A small state chip on a card: Required, Optional, a test requirement. */
@@ -5451,6 +5425,7 @@
 .cref-dest .cdx-rail {
   display: grid;
   gap: 18px;
+  grid-auto-rows: 1fr;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 230px), 1fr));
   counter-reset: railstep;
 }
@@ -5515,7 +5490,7 @@
   font-size: 15.5px;
   margin: 0 0 6px;
 }
-.cref-dest .cdx-callout .card-desc-body {
+.cref-dest .cdx-callout .disclosure-text {
   font-size: 14.5px;
 }
 
@@ -5531,16 +5506,64 @@
   white-space: nowrap;
 }
 
-/* A collapsed prose block. The fade tells a reader the text continues rather
-   than ending mid-sentence at a hard edge. */
-.cref-dest .prose-disclosure-body.is-collapsed {
+/* The one disclosure.
+   `is-collapsed` constrains; `has-more` is added only once the browser has
+   confirmed something is actually hidden, and it is what carries the fade. A
+   block that fits is therefore never faded and never offers a control -- the
+   combination that made copy look clipped with no way to read the rest. */
+.cref-dest .disclosure-body.disclosure-rich.is-collapsed,
+.cref .disclosure-body.disclosure-rich.is-collapsed {
   overflow: hidden;
-  position: relative;
-  -webkit-mask-image: linear-gradient(to bottom, #000 62%, transparent 100%);
-  mask-image: linear-gradient(to bottom, #000 62%, transparent 100%);
 }
-.cref-dest .prose-disclosure .card-desc-toggle {
-  margin-top: 12px;
+.cref-dest .disclosure-body.disclosure-rich.has-more,
+.cref .disclosure-body.disclosure-rich.has-more {
+  -webkit-mask-image: linear-gradient(to bottom, #000 64%, transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 64%, transparent 100%);
+}
+.cref-dest .disclosure-body.disclosure-text.is-collapsed,
+.cref .disclosure-body.disclosure-text.is-collapsed {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: var(--desc-lines, 5);
+  line-clamp: var(--desc-lines, 5);
+  overflow: hidden;
+}
+.cref-dest .disclosure-body,
+.cref .disclosure-body {
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.cref-dest .disclosure-text,
+.cref .disclosure-text {
+  font-size: 15px;
+  color: var(--ink-2);
+  margin: 0;
+}
+
+/* One control: same size, weight, colour and spacing everywhere it appears. */
+.cref-dest .disclosure-toggle,
+.cref .disclosure-toggle {
+  margin-top: 10px;
+  padding: 0;
+  background: none;
+  border: 0;
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--blue);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.cref-dest .disclosure-toggle:hover,
+.cref .disclosure-toggle:hover {
+  color: var(--ink);
+}
+.cref-dest .disclosure-toggle:focus-visible,
+.cref .disclosure-toggle:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 3px;
+  border-radius: 3px;
 }
 
 /* A guidance card in the shared grid: the call to action sits on the bottom

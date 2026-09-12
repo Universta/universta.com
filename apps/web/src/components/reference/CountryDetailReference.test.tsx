@@ -545,7 +545,7 @@ describe('CountryDetailReference previously unrendered fields', () => {
      * so it gets a card but no note block -- the other tests must not produce
      * empty ones. */
     const languageSection = html.slice(html.indexOf('id="language"'));
-    expect(languageSection.split('prose-disclosure-body').length - 1).toBe(1);
+    expect(languageSection.split('disclosure-rich').length - 1).toBe(1);
     expect(html).toContain('<h3>TOEFL</h3>');
   });
 

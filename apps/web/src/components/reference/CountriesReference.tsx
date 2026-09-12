@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { SearchCombobox } from './SearchCombobox';
-import { CardDescription } from './CardDescription';
+import { Disclosure } from './Disclosure';
 import { CountryFlagMark } from './CountryFlagMark';
 import {
   FILTER_KEYS,
@@ -887,7 +887,8 @@ export function CountriesReference(props: CountriesReferenceProps) {
                       ) : null}
                     </div>
                   </div>
-                  <CardDescription
+                  <Disclosure
+                    mode="text"
                     value={country.shortDescription}
                     describes={country.name}
                   />
@@ -1062,7 +1063,7 @@ export function CountriesReference(props: CountriesReferenceProps) {
                         </span>
                         <h4>Study in {record.name}</h4>
                       </div>
-                      <CardDescription
+                      <Disclosure mode="text"
                         value={record.shortDescription}
                         lines={4}
                         describes={record.name}

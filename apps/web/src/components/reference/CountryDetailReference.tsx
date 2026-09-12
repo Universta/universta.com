@@ -8,8 +8,7 @@ const monthName = (value: number) =>
 import { formatDate, formatNumber } from "@/lib/format";
 import { RichText, richTextToPlainText } from "../phase1/RichText";
 import { CountryFlagMark } from "./CountryFlagMark";
-import { CardDescription } from "./CardDescription";
-import { ProseDisclosure } from "./ProseDisclosure";
+import { Disclosure } from "./Disclosure";
 
 /** The client-approved destination detail page.
  *
@@ -660,7 +659,7 @@ export function CountryDetailReference(props: CountryDetailReferenceProps) {
           ) : null}
           {country.tagline ? <p className="eyebrow">{country.tagline}</p> : null}
           {country.shortDescription ? (
-            <ProseDisclosure
+            <Disclosure
               value={country.shortDescription}
               collapsedHeight={150}
               describes={`the introduction to ${country.name}`}
@@ -707,7 +706,7 @@ export function CountryDetailReference(props: CountryDetailReferenceProps) {
                   `About studying in ${country.name}`}
               </h2>
             </div>
-            <ProseDisclosure
+            <Disclosure
               value={overviewBody}
               collapsedHeight={320}
               describes={`the overview of ${country.name}`}
@@ -736,11 +735,9 @@ export function CountryDetailReference(props: CountryDetailReferenceProps) {
                     * copy that can run long, so it collapses like every other
                     * card on the page and the row stays level. */}
                   {card.p ? (
-                    <ProseDisclosure
+                    <Disclosure
                       value={card.p}
                       collapsedHeight={104}
-                      moreLabel="Read more"
-                      lessLabel="Read less"
                       describes={card.h}
                     />
                   ) : null}
@@ -998,7 +995,7 @@ export function CountryDetailReference(props: CountryDetailReferenceProps) {
                   </span>
                   <h3>{doc.name}</h3>
                   {doc.details ? (
-                    <ProseDisclosure
+                    <Disclosure
                       value={doc.details}
                       collapsedHeight={132}
                       describes={doc.name}
@@ -1143,7 +1140,7 @@ export function CountryDetailReference(props: CountryDetailReferenceProps) {
                 * first thing between the heading and the answer a reader came
                 * for. It opens, and continues if they want it. */}
               {language?.generalNotes ? (
-                <ProseDisclosure
+                <Disclosure
                   value={language.generalNotes}
                   collapsedHeight={132}
                   describes="the English requirement"
@@ -1161,7 +1158,7 @@ export function CountryDetailReference(props: CountryDetailReferenceProps) {
                   </span>
                   <h3>{test}</h3>
                   {notes ? (
-                    <ProseDisclosure
+                    <Disclosure
                       value={notes}
                       collapsedHeight={120}
                       describes={`the ${test} note`}
@@ -1174,7 +1171,7 @@ export function CountryDetailReference(props: CountryDetailReferenceProps) {
               <div className="cdx-callout">
                 <h3>An English test waiver is available</h3>
                 {language.waiverNotes ? (
-                  <ProseDisclosure
+                  <Disclosure
                     value={language.waiverNotes}
                     collapsedHeight={110}
                     describes="the waiver note"
@@ -1199,7 +1196,7 @@ export function CountryDetailReference(props: CountryDetailReferenceProps) {
               <span className="eyebrow">Student visa</span>
               <h2>Work and visa pathways in {country.name}</h2>
               {work?.visaInformation ? (
-                <ProseDisclosure
+                <Disclosure
                   value={work.visaInformation}
                   collapsedHeight={220}
                   describes="the visa process"
@@ -1223,7 +1220,7 @@ export function CountryDetailReference(props: CountryDetailReferenceProps) {
             {workProse.map(([heading, body]) => (
               <div className="prose" key={heading}>
                 <h3>{heading}</h3>
-                <ProseDisclosure
+                <Disclosure
                   value={body}
                   collapsedHeight={200}
                   describes={heading}
@@ -1359,7 +1356,7 @@ export function CountryDetailReference(props: CountryDetailReferenceProps) {
               * it opens and continues on request rather than arriving as a
               * wall. The markup is preserved: only the container collapses. */}
             {section.paragraphs.length ? (
-              <ProseDisclosure
+              <Disclosure
                 value={section.paragraphs.join("")}
                 collapsedHeight={300}
                 describes={section.heading || section.key}
@@ -1402,7 +1399,7 @@ export function CountryDetailReference(props: CountryDetailReferenceProps) {
                           </span>
                           {item.title ? <h3>{item.title}</h3> : null}
                           {item.body ? (
-                            <ProseDisclosure
+                            <Disclosure
                               value={item.body}
                               collapsedHeight={118}
                               describes={item.title || `step ${itemIndex + 1}`}
@@ -1421,7 +1418,7 @@ export function CountryDetailReference(props: CountryDetailReferenceProps) {
                       >
                         {item.title ? <h3>{item.title}</h3> : null}
                         {item.body ? (
-                          <ProseDisclosure
+                          <Disclosure
                             value={item.body}
                             collapsedHeight={126}
                             describes={item.title || "this card"}
@@ -1433,7 +1430,7 @@ export function CountryDetailReference(props: CountryDetailReferenceProps) {
                 )
               : null}
             {section.standalone ? (
-              <ProseDisclosure
+              <Disclosure
                 value={section.standalone}
                 collapsedHeight={240}
                 describes={section.heading || section.key}
@@ -1512,7 +1509,7 @@ export function CountryDetailReference(props: CountryDetailReferenceProps) {
                   </div>
                   <RichText value={card.shortDescription} />
                   {card.overview ? (
-                    <ProseDisclosure
+                    <Disclosure
                       value={card.overview}
                       collapsedHeight={104}
                       describes={card.title}
