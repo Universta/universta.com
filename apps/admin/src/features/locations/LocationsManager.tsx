@@ -13,7 +13,9 @@ type StateRow = {
   slug: string;
   status: string;
   displayOrder: number;
-  country: { name: string; slug: string };
+  // A legacy row can outlive a hard-deleted country in older production data.
+  // The API correctly represents that missing relation as null.
+  country: { name: string; slug: string } | null;
 };
 type CityRow = {
   id: string;
@@ -22,7 +24,8 @@ type CityRow = {
   shortDescription: string | null;
   isFeatured: boolean;
   status: string;
-  country: { name: string; slug: string };
+  // See StateRow: do not let an incomplete legacy relation crash the manager.
+  country: { name: string; slug: string } | null;
   state: { id: string; name: string; slug: string } | null;
 };
 
@@ -258,7 +261,16 @@ export function LocationsManager() {
       .catch(() => undefined);
   }, [loadStates, loadCities]);
 
-  const statesForNewCity = states.filter((state) => state.country.slug === countryOf(newCityCountryId, countries)?.slug);
+  const linkedStates = states.filter(
+    (state): state is StateRow & { country: NonNullable<StateRow["country"]> } => state.country !== null,
+  );
+  const linkedCities = cities.filter(
+    (city): city is CityRow & { country: NonNullable<CityRow["country"]> } => city.country !== null,
+  );
+  const unlinkedLocationCount = states.length - linkedStates.length + cities.length - linkedCities.length;
+  const statesForNewCity = linkedStates.filter(
+    (state) => state.country.slug === countryOf(newCityCountryId, countries)?.slug,
+  );
 
   function countryOf(id: string, list: CountryOption[]) {
     return list.find((country) => country.id === id);
@@ -367,8 +379,8 @@ export function LocationsManager() {
   }
 
   const visibleCities = countryFilter
-    ? cities.filter((city) => city.country.slug === countryFilter)
-    : cities;
+    ? linkedCities.filter((city) => city.country.slug === countryFilter)
+    : linkedCities;
 
   return (
     <section className="mx-auto max-w-[1240px]">
@@ -401,6 +413,11 @@ export function LocationsManager() {
       {message ? (
         <p className="mt-4 text-sm text-[#48505F]" role="status">
           {message}
+        </p>
+      ) : null}
+      {unlinkedLocationCount ? (
+        <p className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900" role="alert">
+          {unlinkedLocationCount} legacy location record{unlinkedLocationCount === 1 ? " is" : "s are"} not shown because the linked country no longer exists.
         </p>
       ) : null}
 
@@ -454,7 +471,7 @@ export function LocationsManager() {
                 </tr>
               </thead>
               <tbody>
-                {states.map((state) => (
+                {linkedStates.map((state) => (
                   <tr key={state.id} className="border-t border-[#E8ECF3]">
                     <td className="px-4 py-3 font-medium">
                       {state.name} <span className="text-[#9AA3B2]">({state.slug})</span>
@@ -486,7 +503,7 @@ export function LocationsManager() {
                 ))}
               </tbody>
             </table>
-            {states.length === 0 ? (
+            {linkedStates.length === 0 ? (
               <p className="p-5 text-sm text-[#667085]">No states yet.</p>
             ) : null}
           </div>
@@ -570,9 +587,9 @@ export function LocationsManager() {
               onChange={(event) => setCountryFilter(event.target.value)}
             >
               <option value="">All countries</option>
-              {[...new Set(cities.map((city) => city.country.slug))].map((slug) => (
+              {[...new Set(linkedCities.map((city) => city.country.slug))].map((slug) => (
                 <option key={slug} value={slug}>
-                  {cities.find((city) => city.country.slug === slug)?.country.name}
+                  {linkedCities.find((city) => city.country.slug === slug)?.country.name}
                 </option>
               ))}
             </select>
