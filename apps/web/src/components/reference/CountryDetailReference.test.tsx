@@ -1,6 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import {
+  columnsForCount,
   CountryDetailReference,
   type CountryDetailReferenceProps,
 } from './CountryDetailReference';
@@ -1138,14 +1139,33 @@ describe('CountryDetailReference layout system', () => {
     expect(html).not.toContain('class="why-grid"');
   });
 
-  it('drives the column count from how many cards there are', () => {
+  it('chooses a column count that divides the cards evenly', () => {
     const html = renderToStaticMarkup(
       <CountryDetailReference {...withSectionsAndDocs()} />,
     );
-    /* Two features, so the why grid asks for two columns rather than leaving
-     * two cards stranded in a four-column row. */
-    expect(html).toContain('data-count="2"');
-    expect(html).toContain('data-count="6"');
+    /* Two features ask for two columns rather than leaving two cards stranded
+     * in a four-column row; six documents ask for three, so they land as two
+     * full rows instead of four and a gap. */
+    expect(html).toContain('data-cols="2"');
+    expect(html).toContain('data-cols="3"');
+  });
+
+  it('never asks for more than four columns, and never fewer than the cards', () => {
+    /* The rule itself, across the range a country can produce. */
+    expect(columnsForCount(0)).toBe(1);
+    expect(columnsForCount(1)).toBe(1);
+    expect(columnsForCount(2)).toBe(2);
+    expect(columnsForCount(3)).toBe(3);
+    expect(columnsForCount(4)).toBe(4);
+    /* Five would strand two; three rows of three are even. */
+    expect(columnsForCount(5)).toBe(3);
+    expect(columnsForCount(6)).toBe(3);
+    expect(columnsForCount(9)).toBe(3);
+    expect(columnsForCount(16)).toBe(4);
+    for (let n = 1; n <= 30; n += 1) {
+      expect(columnsForCount(n)).toBeLessThanOrEqual(4);
+      expect(columnsForCount(n)).toBeGreaterThanOrEqual(1);
+    }
   });
 
   it('builds why-study from the features an editor ticked', () => {
@@ -1178,12 +1198,34 @@ describe('CountryDetailReference layout system', () => {
     expect(html).not.toContain('class="intakes"');
   });
 
-  it('lays a journey out as a rail', () => {
-    const html = renderToStaticMarkup(
-      <CountryDetailReference {...withSectionsAndDocs()} />,
-    );
-    expect(html).toContain('cdx-rail');
+  it('lays a journey out as a chain that turns back on itself', () => {
+    const base = withSectionsAndDocs();
+    const withNineSteps = {
+      ...base,
+      page: {
+        ...base.page,
+        sections: [
+          section('application-steps', 'STEPS', {
+            items: Array.from({ length: 9 }, (_, i) => ({
+              step: String(i + 1),
+              title: `Step ${i + 1}`,
+              description: `<p>Do step ${i + 1}.</p>`,
+            })),
+          }),
+        ],
+      },
+    } as unknown as CountryDetailReferenceProps;
+    const html = renderToStaticMarkup(<CountryDetailReference {...withNineSteps} />);
+    expect(html).toContain('cdx-chain');
     expect(html).toContain('cdx-step');
+    /* Nine steps become rows of four, and every other row runs backwards so the
+     * chain does not jump the width of the page to restart. */
+    expect(html).toContain('data-reverse="false"');
+    expect(html).toContain('data-reverse="true"');
+    /* Reversed visually, not in the markup: the steps stay in the order they
+     * are taken, so reading and tab order follow the journey. */
+    const order = [...html.matchAll(/<h3>Step (\d+)<\/h3>/g)].map((m) => Number(m[1]));
+    expect(order).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9]);
   });
 
   it('names the country once in a single at-a-glance summary', () => {

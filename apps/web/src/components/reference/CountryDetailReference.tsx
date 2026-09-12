@@ -99,6 +99,41 @@ function range(min?: string | null, max?: string | null) {
   return low ?? high ?? null;
 }
 
+/** How much of a card's description is shown before it offers the rest.
+ *
+ * One number for every card grid on the page, because equal collapsed height is
+ * what keeps a row aligned, and a row cannot be aligned if each section picks
+ * its own preview depth. The card's own floor in CSS is sized against this. */
+const CARD_PREVIEW = 120;
+
+/**
+ * How many columns a grid of `count` cards should use.
+ *
+ * A fixed four-column desktop rule leaves whatever does not divide by four
+ * stranded: six campus-life cards render as four and then two, with half a row
+ * of empty space beside them. Choosing a column count that divides the cards
+ * evenly is what makes a section look arranged rather than left over -- six
+ * become three and three, nine become three rows of three.
+ *
+ * Four is still the ceiling: beyond that the cards are too narrow to hold a
+ * title and a preview.
+ */
+export function columnsForCount(count: number): number {
+  if (count <= 4) return Math.max(count, 1);
+  if (count % 4 === 0) return 4;
+  if (count % 3 === 0) return 3;
+  if (count === 5) return 3;
+  return 4;
+}
+
+/** Splits the steps into rows so the journey can turn back on itself. */
+function chunk<T>(items: T[], size: number): T[][] {
+  const rows: T[][] = [];
+  for (let index = 0; index < items.length; index += size)
+    rows.push(items.slice(index, index + size));
+  return rows;
+}
+
 const PERIOD_LABEL: Record<string, string> = {
   PER_YEAR: "per year",
   PER_MONTH: "per month",
@@ -727,7 +762,7 @@ export function CountryDetailReference(props: CountryDetailReferenceProps) {
                 {country.name}, not an editorial claim.
               </p>
             </div>
-            <div className="cdx-grid" data-count={whyCards.length}>
+            <div className="cdx-grid" data-cols={columnsForCount(whyCards.length)}>
               {whyCards.map((card) => (
                 <article className="cdx-card" key={card.h}>
                   <h3>{card.h}</h3>
@@ -737,7 +772,7 @@ export function CountryDetailReference(props: CountryDetailReferenceProps) {
                   {card.p ? (
                     <Disclosure
                       value={card.p}
-                      collapsedHeight={104}
+                      collapsedHeight={CARD_PREVIEW}
                       describes={card.h}
                     />
                   ) : null}
@@ -985,7 +1020,7 @@ export function CountryDetailReference(props: CountryDetailReferenceProps) {
               * were rendering as one continuous column of prose that had to be
               * scrolled past to reach the rest of the page. A reader wants to
               * see what is on the list first and read about one item second. */}
-            <div className="cdx-grid" data-count={documents.length}>
+            <div className="cdx-grid" data-cols={columnsForCount(documents.length)}>
               {documents.map((doc) => (
                 <article className="cdx-card" key={doc.id}>
                   <span
@@ -997,7 +1032,7 @@ export function CountryDetailReference(props: CountryDetailReferenceProps) {
                   {doc.details ? (
                     <Disclosure
                       value={doc.details}
-                      collapsedHeight={132}
+                      collapsedHeight={CARD_PREVIEW}
                       describes={doc.name}
                     />
                   ) : null}
@@ -1011,18 +1046,32 @@ export function CountryDetailReference(props: CountryDetailReferenceProps) {
       {/* INTAKES */}
       {intakeLabels.length ? (
         <section className="sec sec-alt" id="intakes">
-          <div className="wrap">
+          {/* Two or four month names cannot fill a page-width row on their
+            * own, so the section stops trying: the explanation takes the left
+            * column and the months sit in a panel beside it, which reads as a
+            * designed pair rather than a line of chips against empty space. */}
+          <div className="wrap cdx-split">
             <div className="head">
               <span className="eyebrow">Timing</span>
               <h2>Intakes in {country.name}</h2>
-              <p>The months this destination opens for entry.</p>
+              <p>
+                The months {country.name} opens for entry.{" "}
+                {intakeLabels.length > 1
+                  ? `More than one intake a year means a missed deadline costs months rather than a full year.`
+                  : `Applications are built around this single entry point, so the deadlines matter.`}
+              </p>
             </div>
-            {/* Four month names do not need four full-width panels. */}
-            <ul className="cdx-chips">
-              {intakeLabels.map((label) => (
-                <li key={label}>{label}</li>
-              ))}
-            </ul>
+            <div className="cdx-panel">
+              <span className="cdx-panel-label">
+                {intakeLabels.length} intake
+                {intakeLabels.length === 1 ? "" : "s"} a year
+              </span>
+              <ul className="cdx-chips">
+                {intakeLabels.map((label) => (
+                  <li key={label}>{label}</li>
+                ))}
+              </ul>
+            </div>
           </div>
         </section>
       ) : null}
@@ -1142,14 +1191,14 @@ export function CountryDetailReference(props: CountryDetailReferenceProps) {
               {language?.generalNotes ? (
                 <Disclosure
                   value={language.generalNotes}
-                  collapsedHeight={132}
+                  collapsedHeight={CARD_PREVIEW}
                   describes="the English requirement"
                 />
               ) : null}
             </div>
             {/* One card per test rather than a four-row pseudo-table whose
               * notes column wrapped into a wall. */}
-            <div className="cdx-grid" data-count={languageRows.length}>
+            <div className="cdx-grid" data-cols={columnsForCount(languageRows.length)}>
               {languageRows.map(([test, requirement, score, notes]) => (
                 <article className="cdx-card" key={test}>
                   <span className="cdx-chip">
@@ -1160,7 +1209,7 @@ export function CountryDetailReference(props: CountryDetailReferenceProps) {
                   {notes ? (
                     <Disclosure
                       value={notes}
-                      collapsedHeight={120}
+                      collapsedHeight={CARD_PREVIEW}
                       describes={`the ${test} note`}
                     />
                   ) : null}
@@ -1173,7 +1222,7 @@ export function CountryDetailReference(props: CountryDetailReferenceProps) {
                 {language.waiverNotes ? (
                   <Disclosure
                     value={language.waiverNotes}
-                    collapsedHeight={110}
+                    collapsedHeight={CARD_PREVIEW}
                     describes="the waiver note"
                   />
                 ) : (
@@ -1371,46 +1420,70 @@ export function CountryDetailReference(props: CountryDetailReferenceProps) {
               * steps use, and the card grid the "why" section uses. */}
             {section.items.length
               ? {
+                  /* Ten label/value pairs across the full container read as a
+                    * spreadsheet with a large empty right-hand side. Two
+                    * columns of stacked facts fill the width and let a value
+                    * sit under its own label where it belongs. */
                   FACT_GRID: (
-                    <div className="cost-table">
+                    <dl className="cdx-facts">
                       {section.items.map((item) => (
-                        <div
-                          className="ct-row"
-                          key={`${section.key}-${item.title}`}
-                        >
-                          <span>{item.title}</span>
-                          <b>{item.body}</b>
-                          <span className="note" />
+                        <div className="cdx-fact" key={`${section.key}-${item.title}`}>
+                          <dt>{item.title}</dt>
+                          <dd>{item.body}</dd>
                         </div>
                       ))}
-                    </div>
+                    </dl>
                   ),
-                  /* A journey reads across, not down: nine steps stacked
-                    * vertically buried the rest of the page under them. */
+                  /* A journey, laid out as one. The steps run left to right,
+                    * then the next row runs back right to left, so the chain
+                    * never jumps the width of the page to restart -- step five
+                    * sits directly under step four. Reversing the row visually
+                    * rather than in the markup keeps the reading and tab order
+                    * in the order the steps are actually taken. */
                   STEPS: (
-                    <div className="cdx-rail">
-                      {section.items.map((item, itemIndex) => (
+                    <div className="cdx-chain">
+                      {chunk(
+                        section.items,
+                        columnsForCount(section.items.length),
+                      ).map((row, rowIndex) => (
                         <div
-                          className="cdx-step"
-                          key={`${section.key}-${itemIndex}`}
+                          className="cdx-chain-row"
+                          data-reverse={rowIndex % 2 === 1 ? "true" : "false"}
+                          key={`${section.key}-row-${rowIndex}`}
                         >
-                          <span className="s-no">
-                            {item.step || String(itemIndex + 1)}
-                          </span>
-                          {item.title ? <h3>{item.title}</h3> : null}
-                          {item.body ? (
-                            <Disclosure
-                              value={item.body}
-                              collapsedHeight={118}
-                              describes={item.title || `step ${itemIndex + 1}`}
-                            />
-                          ) : null}
+                          {row.map((item, itemIndex) => {
+                            const number =
+                              rowIndex * columnsForCount(section.items.length) +
+                              itemIndex +
+                              1;
+                            return (
+                              <div
+                                className="cdx-step"
+                                key={`${section.key}-${number}`}
+                              >
+                                <span className="s-no">
+                                  {item.step || String(number)}
+                                </span>
+                                {item.title ? <h3>{item.title}</h3> : null}
+                                {item.body ? (
+                                  <Disclosure
+                                    value={item.body}
+                                    collapsedHeight={CARD_PREVIEW}
+                                    describes={item.title || `step ${number}`}
+                                  />
+                                ) : null}
+                              </div>
+                            );
+                          })}
                         </div>
                       ))}
                     </div>
                   ),
                 }[section.type] ?? (
-                  <div className="cdx-grid" data-count={section.items.length}>
+                  <div
+                    className="cdx-grid"
+                    data-cols={columnsForCount(section.items.length)}
+                  >
                     {section.items.map((item, itemIndex) => (
                       <article
                         className="cdx-card"
@@ -1420,7 +1493,7 @@ export function CountryDetailReference(props: CountryDetailReferenceProps) {
                         {item.body ? (
                           <Disclosure
                             value={item.body}
-                            collapsedHeight={126}
+                            collapsedHeight={CARD_PREVIEW}
                             describes={item.title || "this card"}
                           />
                         ) : null}
@@ -1498,7 +1571,7 @@ export function CountryDetailReference(props: CountryDetailReferenceProps) {
             * call to action stays pinned to the bottom edge so the cards line
             * up however long their copy is. */}
           {consultantCards.length ? (
-            <div className="cdx-grid" data-count={consultantCards.length}>
+            <div className="cdx-grid" data-cols={columnsForCount(consultantCards.length)}>
               {consultantCards.map((card) => (
                 <article className="cdx-card cons" key={card.id}>
                   <div className="cons-top">
@@ -1511,7 +1584,7 @@ export function CountryDetailReference(props: CountryDetailReferenceProps) {
                   {card.overview ? (
                     <Disclosure
                       value={card.overview}
-                      collapsedHeight={104}
+                      collapsedHeight={CARD_PREVIEW}
                       describes={card.title}
                     />
                   ) : null}
