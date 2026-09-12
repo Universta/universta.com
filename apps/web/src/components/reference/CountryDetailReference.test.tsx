@@ -424,8 +424,11 @@ describe('CountryDetailReference rich-text rendering', () => {
     expect(html).toContain('<h3>Living costs</h3>');
     expect(html).toContain('<strong>fixed</strong>');
     expect(html).toContain('<li>Bank statement</li>');
-    // The fixed sentence and the authored note stay separate blocks.
-    expect(html).toContain('A waiver is available for some applicants.');
+    /* The waiver has its own callout now rather than a fixed sentence followed
+     * by the authored note saying the same thing again. The fact is still
+     * stated, once, and the author's own words are still rendered. */
+    expect(html).toContain('An English test waiver is available');
+    expect(html).toContain('cdx-callout');
     expectNoLiteralMarkup(html);
   });
 
@@ -538,8 +541,12 @@ describe('CountryDetailReference previously unrendered fields', () => {
     );
 
     expect(html).toContain('Only IELTS has a note.');
-    // One note in, one note out -- no empty note blocks for the other tests.
-    expect(html.split('test-note').length - 1).toBe(1);
+    /* One note in, one note out. TOEFL is published with a score and no note,
+     * so it gets a card but no note block -- the other tests must not produce
+     * empty ones. */
+    const languageSection = html.slice(html.indexOf('id="language"'));
+    expect(languageSection.split('prose-disclosure-body').length - 1).toBe(1);
+    expect(html).toContain('<h3>TOEFL</h3>');
   });
 
   it('renders the consultant card overview under its blurb', () => {
@@ -956,13 +963,26 @@ describe('CountryDetailReference at a glance', () => {
     expect(printed.get('Intakes')).toContain('January');
   });
 
-  it('falls back to the currency code when no name is published', () => {
+  it('falls back to the code and symbol when no currency name is published', () => {
     const html = renderToStaticMarkup(
       <CountryDetailReference
         {...glance({ country: { currency: { code: 'INR', symbol: '₹', name: null } } })}
       />,
     );
-    expect(new Map(rows(html)).get('Currency')).toBe('INR');
+    /* The symbol is information in its own right, so it survives the absence
+     * of a name rather than leaving a bare code. */
+    expect(new Map(rows(html)).get('Currency')).toBe('INR (₹)');
+  });
+
+  it('prints the currency name when there is one', () => {
+    const html = renderToStaticMarkup(
+      <CountryDetailReference
+        {...glance({
+          country: { currency: { code: 'INR', symbol: '₹', name: 'Indian Rupee' } },
+        })}
+      />,
+    );
+    expect(new Map(rows(html)).get('Currency')).toBe('Indian Rupee (INR)');
   });
 
   it('prints no row at all for a value the country has not published', () => {
@@ -1058,5 +1078,127 @@ describe('CountryDetailReference at a glance', () => {
     );
     expect(html).not.toContain('quickfacts');
     expect(html).not.toContain('at a glance');
+  });
+});
+
+/**
+ * The page-wide layout rules, pinned so a future section cannot quietly opt out
+ * of them: one card system, four columns at most, and sections that agree about
+ * where the page begins.
+ */
+describe('CountryDetailReference layout system', () => {
+  const withSectionsAndDocs = () => {
+    const base = build(emptyProfiles);
+    return {
+      ...base,
+      page: {
+        ...base.page,
+        country: {
+          ...base.page.country,
+          documents: Array.from({ length: 6 }, (_, i) => ({
+            id: `d${i}`,
+            name: `Document ${i}`,
+            details: `<p>Guidance for document ${i}.</p>`,
+            isRequired: i % 2 === 0,
+          })),
+          configuration: {
+            intakeMonths: [1, 7],
+            acceptedTests: [],
+            features: [
+              { code: 'A', label: 'English-taught degrees' },
+              { code: 'B', label: 'Low tuition fees' },
+            ],
+          },
+        },
+        sections: [
+          section('application-steps', 'STEPS', {
+            items: [
+              { step: '1', title: 'Shortlist', description: '<p>Read it.</p>' },
+              { step: '2', title: 'Apply', description: '<p>Send it.</p>' },
+            ],
+          }),
+          section('student-life', 'CARD_GRID', {
+            items: [{ title: 'Hostels', description: '<p>On campus.</p>' }],
+          }),
+        ],
+      },
+    } as unknown as CountryDetailReferenceProps;
+  };
+
+  it('renders every card section through the one shared grid', () => {
+    const html = renderToStaticMarkup(
+      <CountryDetailReference {...withSectionsAndDocs()} />,
+    );
+    /* Documents, why-study and the card-grid section all use it, so a change to
+     * the column rules reaches all of them at once. */
+    expect(html.split('cdx-grid').length - 1).toBeGreaterThanOrEqual(3);
+    expect(html).toContain('cdx-card');
+    /* And the old bespoke markup is gone. */
+    expect(html).not.toContain('editorial-checklist');
+    expect(html).not.toContain('class="why-grid"');
+  });
+
+  it('drives the column count from how many cards there are', () => {
+    const html = renderToStaticMarkup(
+      <CountryDetailReference {...withSectionsAndDocs()} />,
+    );
+    /* Two features, so the why grid asks for two columns rather than leaving
+     * two cards stranded in a four-column row. */
+    expect(html).toContain('data-count="2"');
+    expect(html).toContain('data-count="6"');
+  });
+
+  it('builds why-study from the features an editor ticked', () => {
+    const html = renderToStaticMarkup(
+      <CountryDetailReference {...withSectionsAndDocs()} />,
+    );
+    const why = html.slice(html.indexOf('id="why"'), html.indexOf('id="documents"'));
+    expect(why).toContain('English-taught degrees');
+    expect(why).toContain('Low tuition fees');
+    /* Facts belong to the sections that own them, not to the case for a
+     * destination. */
+    expect(why).not.toContain('intakes a year');
+    expect(why).not.toContain('English test waiver');
+  });
+
+  it('badges a document as required or optional', () => {
+    const html = renderToStaticMarkup(
+      <CountryDetailReference {...withSectionsAndDocs()} />,
+    );
+    expect(html).toContain('cdx-chip is-required');
+    expect(html).toContain('>Required<');
+    expect(html).toContain('>Optional<');
+  });
+
+  it('renders intake months as chips rather than full-width rows', () => {
+    const html = renderToStaticMarkup(
+      <CountryDetailReference {...withSectionsAndDocs()} />,
+    );
+    expect(html).toContain('cdx-chips');
+    expect(html).not.toContain('class="intakes"');
+  });
+
+  it('lays a journey out as a rail', () => {
+    const html = renderToStaticMarkup(
+      <CountryDetailReference {...withSectionsAndDocs()} />,
+    );
+    expect(html).toContain('cdx-rail');
+    expect(html).toContain('cdx-step');
+  });
+
+  it('names the country once in a single at-a-glance summary', () => {
+    const html = renderToStaticMarkup(
+      <CountryDetailReference {...withSectionsAndDocs()} />,
+    );
+    expect(html.split('at a glance').length - 1).toBe(1);
+  });
+
+  it('points the jump nav only at sections that rendered', () => {
+    const html = renderToStaticMarkup(
+      <CountryDetailReference {...withSectionsAndDocs()} />,
+    );
+    const targets = [...html.matchAll(/<a href="#([a-z0-9-]+)"/g)].map((m) => m[1]);
+    const ids = new Set([...html.matchAll(/ id="([a-z0-9-]+)"/g)].map((m) => m[1]));
+    for (const target of targets) expect(ids.has(target)).toBe(true);
   });
 });
