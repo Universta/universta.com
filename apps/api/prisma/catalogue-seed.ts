@@ -960,12 +960,12 @@ async function seedOfferings(
  * Which generic courses are available in each destination, derived from the
  * offerings its universities actually run.
  *
- * `sourceReference` and `verifiedAt` are left null on purpose. The public
- * course listing requires both, and the Admin API validates the reference as a
- * real HTTPS citation -- so filling them here would mean inventing citations.
- * The relationship is created so an editor can verify it in Admin; until they
- * do, these courses stay off the public /courses listing by the product's own
- * design. This is reported at the end of the run.
+ * `sourceReference` and `verifiedAt` are left null on purpose: the Admin API
+ * validates the reference as a real HTTPS citation, so filling them here would
+ * mean inventing one. Visibility no longer depends on them -- an active,
+ * available mapping between a published course and a published country is
+ * public on its own -- so an editor can add a citation later without anything
+ * being hidden in the meantime.
  */
 async function seedCountryCourses(
   countryIds: Map<string, string>,
@@ -1006,7 +1006,7 @@ async function seedCountryCourses(
   }
   if (unverified) {
     warnings.push(
-      `${unverified} country-course mappings have no source reference or verified date. The public /courses listing requires both (courses.service.ts#publicMappingWhere), so these courses will not appear there until an editor verifies them in Admin. No citation was invented to work around that gate.`,
+      `${unverified} country-course mappings carry no source reference or verified date. They are public regardless, and an editor can add a citation in Admin at any time. No citation was invented here.`,
     );
   }
 }
